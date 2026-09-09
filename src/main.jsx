@@ -80,10 +80,6 @@ const CONNECTIONS = [
   },
 ];
 
-/* ============================================================
-   APP
-============================================================ */
-
 function App() {
   const [wallet, setWallet] = useState("");
   const [walletOpen, setWalletOpen] = useState(false);
@@ -101,21 +97,27 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const escape = (event) => {
-      if (event.key !== "Escape") return;
+    const handleEscape = (event) => {
+      if (event.key !== "Escape") {
+        return;
+      }
 
       setWalletOpen(false);
       setAgentOpen(false);
       setMobileOpen(false);
     };
 
-    window.addEventListener("keydown", escape);
+    window.addEventListener(
+      "keydown",
+      handleEscape
+    );
 
-    return () =>
+    return () => {
       window.removeEventListener(
         "keydown",
-        escape
+        handleEscape
       );
+    };
   }, []);
 
   const connectWallet = async () => {
@@ -127,7 +129,8 @@ function App() {
     try {
       const accounts =
         await window.ethereum.request({
-          method: "eth_requestAccounts",
+          method:
+            "eth_requestAccounts",
         });
 
       if (accounts?.[0]) {
@@ -135,14 +138,19 @@ function App() {
         setWalletOpen(false);
       }
     } catch {
-      // User rejected connection.
+      // Connection rejected.
     }
   };
 
   const shortWallet = useMemo(() => {
-    if (!wallet) return "";
+    if (!wallet) {
+      return "";
+    }
 
-    return `${wallet.slice(0, 6)}…${wallet.slice(-4)}`;
+    return `${wallet.slice(
+      0,
+      6
+    )}…${wallet.slice(-4)}`;
   }, [wallet]);
 
   return (
@@ -170,7 +178,9 @@ function App() {
       />
 
       <main>
-        <Hero onConnect={connectWallet} />
+        <Hero
+          onConnect={connectWallet}
+        />
 
         <ConnectionSection
           onMcp={() =>
@@ -184,8 +194,6 @@ function App() {
         />
 
         <OwnershipSection />
-
-        <ProtocolSection />
 
         <FinalCTA
           onWallet={connectWallet}
@@ -231,7 +239,9 @@ function Navbar({
 
   useEffect(() => {
     const update = () => {
-      setScrolled(window.scrollY > 24);
+      setScrolled(
+        window.scrollY > 24
+      );
     };
 
     window.addEventListener(
@@ -250,7 +260,9 @@ function Navbar({
   return (
     <header
       className={`nav ${
-        scrolled ? "nav-scrolled" : ""
+        scrolled
+          ? "nav-scrolled"
+          : ""
       }`}
     >
       <div className="nav-inner">
@@ -275,13 +287,15 @@ function Navbar({
             Infrastructure
           </a>
 
-          <a href="#protocols">
+          <a href="#connect">
             Developers
           </a>
 
           <button className="nav-dropdown">
             Resources
-            <ChevronDown size={13} />
+            <ChevronDown
+              size={13}
+            />
           </button>
 
           <a href="#connect">
@@ -324,8 +338,11 @@ function Navbar({
    HERO
 ============================================================ */
 
-function Hero({ onConnect }) {
-  const heroRef = useRef(null);
+function Hero({
+  onConnect,
+}) {
+  const heroRef =
+    useRef(null);
 
   const { scrollYProgress } =
     useScroll({
@@ -348,28 +365,28 @@ function Hero({ onConnect }) {
   const titleY = useTransform(
     progress,
     [0, 1],
-    [0, -70]
+    [0, -55]
   );
 
   const titleOpacity =
     useTransform(
       progress,
       [0, 0.62, 1],
-      [1, 0.96, 0]
+      [1, 0.95, 0]
     );
 
   const atmosphereY =
     useTransform(
       progress,
       [0, 1],
-      [0, 90]
+      [0, 70]
     );
 
   const atmosphereScale =
     useTransform(
       progress,
       [0, 1],
-      [1, 1.1]
+      [1, 1.08]
     );
 
   return (
@@ -381,18 +398,16 @@ function Hero({ onConnect }) {
       <div className="hero-sticky">
         <div className="hero-grid" />
 
-        {/* IMPORTANT:
-            Absolute positioning keeps the animation
-            behind the hero instead of pushing the text down.
-        */}
         <motion.div
           style={{
             position: "absolute",
             inset: 0,
             zIndex: 1,
-            pointerEvents: "none",
+            pointerEvents:
+              "none",
             y: atmosphereY,
-            scale: atmosphereScale,
+            scale:
+              atmosphereScale,
           }}
         >
           <BackgroundField />
@@ -402,9 +417,8 @@ function Hero({ onConnect }) {
           className="hero-copy"
           style={{
             y: titleY,
-            opacity: titleOpacity,
-            position: "relative",
-            zIndex: 7,
+            opacity:
+              titleOpacity,
           }}
         >
           <p className="eyebrow">
@@ -420,10 +434,11 @@ function Hero({ onConnect }) {
           </h1>
 
           <p className="hero-description">
-            Connect your wallet, your agent,
-            and decentralized financial
-            infrastructure through one open
-            interface.
+            Connect your wallet,
+            your agent, and
+            decentralized financial
+            infrastructure through
+            one open interface.
           </p>
 
           <div className="hero-actions">
@@ -432,7 +447,9 @@ function Hero({ onConnect }) {
               onClick={onConnect}
             >
               Get started
-              <ArrowUpRight size={16} />
+              <ArrowUpRight
+                size={16}
+              />
             </button>
 
             <a
@@ -479,11 +496,12 @@ function Hero({ onConnect }) {
 }
 
 /* ============================================================
-   BACKGROUND FIELD
+   BACKGROUND
 ============================================================ */
 
 function BackgroundField() {
-  const canvasRef = useRef(null);
+  const canvasRef =
+    useRef(null);
 
   useEffect(() => {
     const canvas =
@@ -508,12 +526,16 @@ function BackgroundField() {
 
     const resize = () => {
       const dpr = Math.min(
-        window.devicePixelRatio || 1,
+        window.devicePixelRatio ||
+          1,
         2
       );
 
-      width = canvas.clientWidth;
-      height = canvas.clientHeight;
+      width =
+        canvas.clientWidth;
+
+      height =
+        canvas.clientHeight;
 
       canvas.width =
         width * dpr;
@@ -531,15 +553,19 @@ function BackgroundField() {
       );
 
       const count =
-        window.innerWidth >= 1400
-          ? 1450
-          : window.innerWidth >= 800
-          ? 950
-          : 480;
+        window.innerWidth >=
+        1400
+          ? 1250
+          : window.innerWidth >=
+            800
+          ? 820
+          : 420;
 
       particles =
         Array.from(
-          { length: count },
+          {
+            length: count,
+          },
           (_, index) => ({
             x:
               Math.random() *
@@ -550,26 +576,27 @@ function BackgroundField() {
               height,
 
             vx:
-              (Math.random() - 0.5) *
-              0.1,
+              (Math.random() -
+                0.5) *
+              0.08,
 
             vy:
-              (Math.random() - 0.5) *
-              0.065,
+              (Math.random() -
+                0.5) *
+              0.055,
 
             size:
               Math.random() *
-                1.35 +
-              0.18,
+                1.1 +
+              0.15,
 
             alpha:
               Math.random() *
-                0.38 +
-              0.04,
+                0.32 +
+              0.035,
 
             phase:
-              index *
-              0.037,
+              index * 0.041,
           })
         );
     };
@@ -586,100 +613,113 @@ function BackgroundField() {
         width * 0.5;
 
       const cy =
-        height * 0.53;
+        height * 0.52;
 
-      const maxDistance =
+      const radius =
         Math.min(
           width,
           height
         ) * 0.65;
 
-      /* particles */
-      for (
-        let i = 0;
-        i < particles.length;
-        i++
-      ) {
-        const p =
-          particles[i];
+      particles.forEach(
+        (particle) => {
+          particle.x +=
+            particle.vx;
 
-        p.x += p.vx;
-        p.y += p.vy;
+          particle.y +=
+            particle.vy;
 
-        if (p.x < -20)
-          p.x = width + 20;
+          if (
+            particle.x < -20
+          ) {
+            particle.x =
+              width + 20;
+          }
 
-        if (p.x > width + 20)
-          p.x = -20;
+          if (
+            particle.x >
+            width + 20
+          ) {
+            particle.x = -20;
+          }
 
-        if (p.y < -20)
-          p.y = height + 20;
+          if (
+            particle.y < -20
+          ) {
+            particle.y =
+              height + 20;
+          }
 
-        if (p.y > height + 20)
-          p.y = -20;
+          if (
+            particle.y >
+            height + 20
+          ) {
+            particle.y = -20;
+          }
 
-        const dx =
-          p.x - cx;
+          const dx =
+            particle.x - cx;
 
-        const dy =
-          p.y - cy;
+          const dy =
+            particle.y - cy;
 
-        const distance =
-          Math.sqrt(
-            dx * dx +
-            dy * dy
-          );
+          const distance =
+            Math.sqrt(
+              dx * dx +
+                dy * dy
+            );
 
-        const influence =
-          Math.max(
+          const influence =
+            Math.max(
+              0,
+              1 -
+                distance /
+                  radius
+            );
+
+          const pulse =
+            0.65 +
+            Math.sin(
+              time * 0.0004 +
+                particle.phase
+            ) *
+              0.35;
+
+          const alpha =
+            particle.alpha *
+            (0.35 +
+              influence * 0.8) *
+            pulse;
+
+          ctx.fillStyle =
+            `rgba(103,173,235,${alpha})`;
+
+          ctx.beginPath();
+
+          ctx.arc(
+            particle.x,
+            particle.y,
+            particle.size *
+              (0.75 +
+                influence *
+                  0.5),
             0,
-            1 -
-              distance /
-                maxDistance
+            Math.PI * 2
           );
 
-        const pulse =
-          0.65 +
-          Math.sin(
-            time * 0.00042 +
-              p.phase
-          ) *
-            0.35;
+          ctx.fill();
+        }
+      );
 
-        const alpha =
-          p.alpha *
-          (0.35 +
-            influence * 0.9) *
-          pulse;
-
-        ctx.fillStyle =
-          `rgba(103, 173, 235, ${alpha})`;
-
-        ctx.beginPath();
-
-        ctx.arc(
-          p.x,
-          p.y,
-          p.size *
-            (0.65 +
-              influence * 0.6),
-          0,
-          Math.PI * 2
-        );
-
-        ctx.fill();
-      }
-
-      /* very subtle orbit structure */
       const rings = [
-        [250, 0.21],
-        [390, 0.34],
-        [540, 0.46],
-        [700, 0.58],
+        220,
+        350,
+        500,
+        660,
       ];
 
       rings.forEach(
-        ([radius, rotation]) => {
+        (ring, index) => {
           ctx.save();
 
           ctx.translate(
@@ -690,7 +730,9 @@ function BackgroundField() {
           ctx.rotate(
             time *
               0.000012 *
-              rotation
+              (index % 2 === 0
+                ? 1
+                : -1)
           );
 
           ctx.beginPath();
@@ -698,15 +740,18 @@ function BackgroundField() {
           ctx.ellipse(
             0,
             0,
-            radius,
-            radius * 0.34,
+            ring,
+            ring * 0.32,
             0,
             0,
             Math.PI * 2
           );
 
           ctx.strokeStyle =
-            "rgba(93, 157, 218, 0.025)";
+            `rgba(93,157,218,${
+              0.018 +
+              index * 0.005
+            })`;
 
           ctx.lineWidth = 1;
 
@@ -740,7 +785,9 @@ function BackgroundField() {
         resize
       );
 
-      cancelAnimationFrame(frame);
+      cancelAnimationFrame(
+        frame
+      );
     };
   }, []);
 
@@ -749,7 +796,8 @@ function BackgroundField() {
       ref={canvasRef}
       aria-hidden="true"
       style={{
-        position: "absolute",
+        position:
+          "absolute",
         inset: 0,
         width: "100%",
         height: "100%",
@@ -759,7 +807,7 @@ function BackgroundField() {
 }
 
 /* ============================================================
-   CONNECTIONS
+   CONNECTION
 ============================================================ */
 
 function ConnectionSection({
@@ -779,12 +827,15 @@ function ConnectionSection({
           <h2>
             Bring your own
             <br />
-            <span>agent.</span>
+            <span>
+              agent.
+            </span>
           </h2>
 
           <p>
-            MIRORFI gives the systems you
-            already use a clean path into
+            MIRORFI gives the
+            systems you already use
+            a clean path into
             decentralized finance.
           </p>
         </div>
@@ -795,12 +846,15 @@ function ConnectionSection({
           (item, index) => (
             <Reveal
               key={item.title}
-              delay={index * 0.06}
+              delay={
+                index * 0.06
+              }
             >
               <ConnectionCard
                 item={item}
                 onClick={
-                  item.title === "MCP"
+                  item.title ===
+                  "MCP"
                     ? onMcp
                     : undefined
                 }
@@ -835,7 +889,9 @@ function ConnectionCard({
         <div className="connection-icon">
           <Icon
             size={18}
-            strokeWidth={1.45}
+            strokeWidth={
+              1.45
+            }
           />
         </div>
 
@@ -895,8 +951,9 @@ function InfrastructureSection({
               </h2>
 
               <p>
-                A clean interface between
-                your agent and the decentralized
+                A clean interface
+                between your agent
+                and the decentralized
                 markets it can access.
               </p>
             </div>
@@ -941,11 +998,18 @@ function InfraPoint({
 }) {
   return (
     <div className="infra-point">
-      <span>{number}</span>
+      <span>
+        {number}
+      </span>
 
       <div>
-        <h4>{title}</h4>
-        <p>{text}</p>
+        <h4>
+          {title}
+        </h4>
+
+        <p>
+          {text}
+        </p>
       </div>
     </div>
   );
@@ -978,10 +1042,21 @@ function MarketPanel({
 
       <div className="market-table">
         <div className="market-row market-row-heading">
-          <span>Asset</span>
-          <span>Supply APY</span>
-          <span>Borrow APY</span>
-          <span>Liquidity</span>
+          <span>
+            Asset
+          </span>
+
+          <span>
+            Supply APY
+          </span>
+
+          <span>
+            Borrow APY
+          </span>
+
+          <span>
+            Liquidity
+          </span>
         </div>
 
         {markets.map(
@@ -1003,7 +1078,8 @@ function MarketPanel({
               transition={{
                 duration: 0.5,
                 delay:
-                  index * 0.06,
+                  index *
+                  0.06,
               }}
             >
               <div className="asset-cell">
@@ -1061,7 +1137,8 @@ function MarketPanel({
 ============================================================ */
 
 function OwnershipSection() {
-  const ref = useRef(null);
+  const ref =
+    useRef(null);
 
   const { scrollYProgress } =
     useScroll({
@@ -1105,8 +1182,9 @@ function OwnershipSection() {
         </h2>
 
         <p>
-          Your agent chooses the action.
-          MIRORFI provides the connection layer.
+          Your agent chooses the
+          action. MIRORFI provides
+          the connection layer.
         </p>
       </Reveal>
 
@@ -1152,7 +1230,7 @@ function OwnershipNode({
   index,
   title,
   copy,
-  highlight = false,
+  highlight,
 }) {
   return (
     <div
@@ -1162,93 +1240,17 @@ function OwnershipNode({
           : ""
       }`}
     >
-      <span>{index}</span>
+      <span>
+        {index}
+      </span>
 
-      <strong>{title}</strong>
+      <strong>
+        {title}
+      </strong>
 
-      <small>{copy}</small>
-    </div>
-  );
-}
-
-/* ============================================================
-   PROTOCOL
-============================================================ */
-
-function ProtocolSection() {
-  return (
-    <section
-      className="content-section morpho-section"
-      id="protocols"
-    >
-      <Reveal>
-        <div className="morpho-shell">
-          <div className="morpho-orbit">
-            <ProtocolVisual />
-          </div>
-
-          <div className="morpho-copy">
-            <p className="section-kicker">
-              04 / Protocols
-            </p>
-
-            <h2>
-              Built on
-              <br />
-              <span>
-                open infrastructure.
-              </span>
-            </h2>
-
-            <p>
-              MIRORFI connects to existing
-              DeFi infrastructure instead of
-              replacing it.
-            </p>
-
-            <a
-              className="protocol-badge"
-              href="https://morpho.org/"
-              target="_blank"
-              rel="noreferrer"
-            >
-              <span className="protocol-logo">
-                M
-              </span>
-
-              <div>
-                <strong>
-                  Morpho
-                </strong>
-
-                <small>
-                  API + agent infrastructure
-                </small>
-              </div>
-
-              <ExternalLink size={15} />
-            </a>
-          </div>
-        </div>
-      </Reveal>
-    </section>
-  );
-}
-
-function ProtocolVisual() {
-  return (
-    <div className="protocol-visual">
-      <div className="protocol-center">
-        M
-      </div>
-
-      <div className="protocol-orbit orbit-a" />
-      <div className="protocol-orbit orbit-b" />
-      <div className="protocol-orbit orbit-c" />
-
-      <span className="protocol-node node-one" />
-      <span className="protocol-node node-two" />
-      <span className="protocol-node node-three" />
+      <small>
+        {copy}
+      </small>
     </div>
   );
 }
@@ -1261,7 +1263,8 @@ function FinalCTA({
   onWallet,
   onAgent,
 }) {
-  const ref = useRef(null);
+  const ref =
+    useRef(null);
 
   const { scrollYProgress } =
     useScroll({
@@ -1272,11 +1275,12 @@ function FinalCTA({
       ],
     });
 
-  const scale = useTransform(
-    scrollYProgress,
-    [0, 0.8],
-    [0.95, 1]
-  );
+  const scale =
+    useTransform(
+      scrollYProgress,
+      [0, 0.8],
+      [0.95, 1]
+    );
 
   return (
     <section
@@ -1289,11 +1293,12 @@ function FinalCTA({
         style={{ scale }}
       >
         <div className="final-grid" />
+
         <div className="final-light" />
 
         <div className="final-content">
           <p className="section-kicker">
-            05 / Connect
+            04 / Connect
           </p>
 
           <h2>
@@ -1303,8 +1308,9 @@ function FinalCTA({
           </h2>
 
           <p>
-            Bring your wallet. Bring your
-            agent. Connect to open finance.
+            Bring your wallet.
+            Bring your agent.
+            Connect to open finance.
           </p>
 
           <div className="final-actions">
@@ -1313,7 +1319,9 @@ function FinalCTA({
               onClick={onWallet}
             >
               Connect wallet
-              <ArrowUpRight size={16} />
+              <ArrowUpRight
+                size={16}
+              />
             </button>
 
             <button
@@ -1358,7 +1366,7 @@ function Footer() {
             Infrastructure
           </a>
 
-          <a href="#protocols">
+          <a href="#connect">
             Developers
           </a>
 
@@ -1368,7 +1376,9 @@ function Footer() {
         </div>
 
         <span className="footer-copy">
-          © {new Date().getFullYear()} MIRORFI
+          © {new Date().getFullYear()}
+          {" "}
+          MIRORFI
         </span>
       </div>
     </footer>
@@ -1400,9 +1410,10 @@ function WalletModal({
 
       setCopied(true);
 
-      window.setTimeout(() => {
-        setCopied(false);
-      }, 1400);
+      window.setTimeout(
+        () => setCopied(false),
+        1400
+      );
     } catch {
       // Clipboard unavailable.
     }
@@ -1453,10 +1464,11 @@ function WalletModal({
         </div>
 
         <p className="modal-copy">
-          Your wallet remains under your
-          control. MIRORFI only requests
-          the connection required for the
-          interface.
+          Your wallet remains
+          under your control.
+          MIRORFI only requests
+          the connection required
+          for the interface.
         </p>
 
         {wallet ? (
@@ -1532,7 +1544,9 @@ function AgentModal({
   const [
     endpoint,
     setEndpoint,
-  ] = useState(MORPHO_MCP);
+  ] = useState(
+    MORPHO_MCP
+  );
 
   const [
     agentName,
@@ -1546,12 +1560,13 @@ function AgentModal({
     return null;
   }
 
-  const connect = () => {
+  const connectAgent = () => {
     setStatus("connecting");
 
-    window.setTimeout(() => {
-      setStatus("connected");
-    }, 700);
+    window.setTimeout(
+      () => setStatus("connected"),
+      700
+    );
   };
 
   return (
@@ -1599,8 +1614,8 @@ function AgentModal({
         </div>
 
         <p className="modal-copy">
-          Connect an MCP endpoint used by
-          your own agent.
+          Connect an MCP endpoint
+          used by your own agent.
         </p>
 
         <label className="field">
@@ -1637,7 +1652,9 @@ function AgentModal({
 
         <button
           className="modal-action primary-action"
-          onClick={connect}
+          onClick={
+            connectAgent
+          }
           disabled={
             status === "connecting"
           }
@@ -1647,10 +1664,12 @@ function AgentModal({
           {status === "ready" &&
             "Connect MCP"}
 
-          {status === "connecting" &&
+          {status ===
+            "connecting" &&
             "Connecting…"}
 
-          {status === "connected" &&
+          {status ===
+            "connected" &&
             "Connected"}
 
           {status !==
@@ -1741,7 +1760,7 @@ function MobileMenu({
         </a>
 
         <a
-          href="#protocols"
+          href="#connect"
           onClick={onClose}
         >
           Developers
@@ -1767,7 +1786,9 @@ function MobileMenu({
         onClick={onConnect}
       >
         Connect
-        <ArrowUpRight size={16} />
+        <ArrowUpRight
+          size={16}
+        />
       </button>
     </div>
   );
@@ -1814,7 +1835,7 @@ function Reveal({
 }
 
 /* ============================================================
-   MORPHO API
+   MORPHO DATA
 ============================================================ */
 
 async function fetchMarkets(
@@ -1827,10 +1848,12 @@ async function fetchMarkets(
         `${MORPHO_API}/graphql`,
         {
           method: "POST",
+
           headers: {
             "Content-Type":
               "application/json",
           },
+
           body: JSON.stringify({
             query: `
               query {
@@ -1879,42 +1902,47 @@ async function fetchMarkets(
               ?.symbol
         )
         .slice(0, 6)
-        .map((item) => ({
-          asset:
-            item.loanAsset.symbol,
+        .map(
+          (item) => ({
+            asset:
+              item.loanAsset
+                .symbol,
 
-          network:
-            "Morpho",
+            network:
+              "Morpho",
 
-          supply:
-            formatPercent(
-              item?.state
-                ?.supplyApy
-            ),
+            supply:
+              formatPercent(
+                item?.state
+                  ?.supplyApy
+              ),
 
-          borrow:
-            formatPercent(
-              item?.state
-                ?.borrowApy
-            ),
+            borrow:
+              formatPercent(
+                item?.state
+                  ?.borrowApy
+              ),
 
-          liquidity:
-            formatUsd(
-              item?.state
-                ?.liquidityAssets
-            ),
-        }));
+            liquidity:
+              formatUsd(
+                item?.state
+                  ?.liquidityAssets
+              ),
+          })
+        );
 
-    if (parsed.length > 0) {
+    if (parsed.length) {
       setMarkets(parsed);
       setLive(true);
     }
   } catch {
-    // Keep fallback data.
+    // Keep fallback.
   }
 }
 
-function formatPercent(value) {
+function formatPercent(
+  value
+) {
   const number =
     Number(value);
 
@@ -1964,7 +1992,7 @@ function formatUsd(value) {
 }
 
 /* ============================================================
-   MOUNT
+   ROOT
 ============================================================ */
 
 createRoot(
