@@ -2015,6 +2015,46 @@ function Footer() {
           <a href="#connect">
             Resources
           </a>
+
+          <a
+            href="https://x.com/MIRORFI"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="MIRORFI on X"
+            title="MIRORFI on X"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 28,
+              height: 28,
+              marginLeft: 4,
+              border: "1px solid var(--line)",
+              borderRadius: "50%",
+              color: "#dfe4ea",
+              transition: "transform 180ms ease, border-color 180ms ease, color 180ms ease",
+            }}
+            onMouseEnter={(event) => {
+              event.currentTarget.style.transform = "translateY(-2px)";
+              event.currentTarget.style.borderColor = "rgba(255,255,255,0.24)";
+              event.currentTarget.style.color = "#ffffff";
+            }}
+            onMouseLeave={(event) => {
+              event.currentTarget.style.transform = "translateY(0)";
+              event.currentTarget.style.borderColor = "var(--line)";
+              event.currentTarget.style.color = "#dfe4ea";
+            }}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="13"
+              height="13"
+              aria-hidden="true"
+              fill="currentColor"
+            >
+              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817-5.964 6.817H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231 5.45-6.231Zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77Z" />
+            </svg>
+          </a>
         </div>
 
         <span className="footer-copy">
