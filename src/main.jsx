@@ -60,6 +60,10 @@ const FALLBACK_MARKETS = [
     supply: "—",
     borrow: "—",
     liquidity: "—",
+    utilization: "—",
+    collateral: "",
+    marketId: "—",
+    key: "fallback-1",
   },
   {
     asset: "USDT",
@@ -67,6 +71,10 @@ const FALLBACK_MARKETS = [
     supply: "—",
     borrow: "—",
     liquidity: "—",
+    utilization: "—",
+    collateral: "",
+    marketId: "—",
+    key: "fallback-2",
   },
   {
     asset: "WETH",
@@ -74,6 +82,10 @@ const FALLBACK_MARKETS = [
     supply: "—",
     borrow: "—",
     liquidity: "—",
+    utilization: "—",
+    collateral: "",
+    marketId: "—",
+    key: "fallback-3",
   },
 ];
 
@@ -135,30 +147,40 @@ function App() {
   const [marketsLive, setMarketsLive] =
     useState(false);
 
+  const [marketsLoading, setMarketsLoading] =
+    useState(true);
+
+  const [marketsUpdatedAt, setMarketsUpdatedAt] =
+    useState(null);
+
   /* ----------------------------------------------------------
      Load Morpho market data
   ---------------------------------------------------------- */
 
-  useEffect(() => {
-    let cancelled = false;
+  const refreshMarkets = useCallback(
+    async () => {
+      setMarketsLoading(true);
 
-    loadMarketData().then((result) => {
-      if (
-        cancelled ||
-        !Array.isArray(result) ||
-        result.length === 0
-      ) {
-        return;
+      try {
+        const result = await loadMarketData();
+
+        if (Array.isArray(result) && result.length > 0) {
+          setMarkets(result);
+          setMarketsLive(true);
+          setMarketsUpdatedAt(new Date());
+        } else {
+          setMarketsLive(false);
+        }
+      } finally {
+        setMarketsLoading(false);
       }
+    },
+    []
+  );
 
-      setMarkets(result);
-      setMarketsLive(true);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  useEffect(() => {
+    refreshMarkets();
+  }, [refreshMarkets]);
 
   /* ----------------------------------------------------------
      Connect wallet
@@ -436,6 +458,9 @@ function App() {
         <InfrastructureSection
           markets={markets}
           live={marketsLive}
+          loading={marketsLoading}
+          updatedAt={marketsUpdatedAt}
+          onRefresh={refreshMarkets}
         />
 
         <OwnershipSection />
@@ -1196,6 +1221,9 @@ function ConnectionCard({
 function InfrastructureSection({
   markets,
   live,
+  loading,
+  updatedAt,
+  onRefresh,
 }) {
   return (
     <section
@@ -1252,6 +1280,9 @@ function InfrastructureSection({
           <MarketPanel
             markets={markets}
             live={live}
+            loading={loading}
+            updatedAt={updatedAt}
+            onRefresh={onRefresh}
           />
         </Reveal>
       </div>
@@ -1282,7 +1313,75 @@ function InfraPoint({
 function MarketPanel({
   markets,
   live,
+  loading,
+  updatedAt,
+  onRefresh,
 }) {
+  const [query, setQuery] = useState("");
+  const [chainFilter, setChainFilter] = useState("All");
+  const [selectedKey, setSelectedKey] = useState(null);
+
+  const chains = useMemo(() => {
+    const values = markets
+      .map((market) => market.network)
+      .filter(Boolean);
+
+    return ["All", ...Array.from(new Set(values))];
+  }, [markets]);
+
+  const filteredMarkets = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+
+    return markets.filter((market) => {
+      const matchesChain =
+        chainFilter === "All" ||
+        market.network === chainFilter;
+
+      const haystack = [
+        market.asset,
+        market.collateral,
+        market.network,
+        market.marketId,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return (
+        matchesChain &&
+        (!normalizedQuery ||
+          haystack.includes(normalizedQuery))
+      );
+    });
+  }, [markets, query, chainFilter]);
+
+  const selectedMarket = useMemo(() => {
+    if (!selectedKey) {
+      return filteredMarkets[0] || markets[0] || null;
+    }
+
+    return (
+      markets.find(
+        (market) => market.key === selectedKey
+      ) || null
+    );
+  }, [markets, filteredMarkets, selectedKey]);
+
+  useEffect(() => {
+    if (
+      selectedKey &&
+      !markets.some(
+        (market) => market.key === selectedKey
+      )
+    ) {
+      setSelectedKey(null);
+    }
+  }, [markets, selectedKey]);
+
+  const selectMarket = (market) => {
+    setSelectedKey(market.key);
+  };
+
   return (
     <div className="market-panel">
       <div className="market-panel-header">
@@ -1296,13 +1395,134 @@ function MarketPanel({
           </h3>
         </div>
 
-        <div className="live-indicator">
-          <span />
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={loading}
+            aria-label="Refresh markets"
+            title="Refresh markets"
+            style={{
+              width: 30,
+              height: 30,
+              display: "grid",
+              placeItems: "center",
+              border: "1px solid var(--line)",
+              borderRadius: "50%",
+              background: "rgba(255,255,255,0.02)",
+              color: "#8d96a1",
+              cursor: loading ? "wait" : "pointer",
+              padding: 0,
+            }}
+          >
+            <RefreshCw
+              size={13}
+              style={{
+                animation: loading
+                  ? "mirorfiSpin 1s linear infinite"
+                  : "none",
+              }}
+            />
+          </button>
 
-          {live
-            ? "Live"
-            : "Available"}
+          <div className="live-indicator">
+            <span />
+            {loading
+              ? "Updating"
+              : live
+              ? "Live"
+              : "Available"}
+          </div>
         </div>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr auto",
+          gap: 8,
+          marginBottom: 14,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            minWidth: 0,
+            border: "1px solid var(--line)",
+            background: "rgba(255,255,255,0.018)",
+            padding: "0 12px",
+            height: 40,
+          }}
+        >
+          <span
+            aria-hidden="true"
+            style={{
+              color: "#525a65",
+              fontSize: 13,
+            }}
+          >
+            /
+          </span>
+
+          <input
+            value={query}
+            onChange={(event) =>
+              setQuery(event.target.value)
+            }
+            placeholder="Search asset or market"
+            spellCheck="false"
+            style={{
+              width: "100%",
+              border: 0,
+              outline: 0,
+              background: "transparent",
+              color: "#dfe5eb",
+              font: "inherit",
+              fontSize: 12,
+            }}
+          />
+        </div>
+
+        <select
+          value={chainFilter}
+          onChange={(event) =>
+            setChainFilter(event.target.value)
+          }
+          aria-label="Filter market network"
+          style={{
+            minWidth: 112,
+            height: 40,
+            border: "1px solid var(--line)",
+            borderRadius: 0,
+            background: "rgba(255,255,255,0.018)",
+            color: "#9ca5af",
+            padding: "0 10px",
+            outline: 0,
+            font: "inherit",
+            fontSize: 11,
+          }}
+        >
+          {chains.map((chain) => (
+            <option
+              key={chain}
+              value={chain}
+              style={{
+                background: "#0b0d10",
+                color: "#dfe5eb",
+              }}
+            >
+              {chain}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="market-table">
@@ -1324,62 +1544,219 @@ function MarketPanel({
           </span>
         </div>
 
-        {markets.map(
-          (market, index) => (
-            <motion.div
-              className="market-row"
-              key={`${market.asset}-${index}`}
-              initial={{
-                opacity: 0,
-                y: 10,
-              }}
-              whileInView={{
-                opacity: 1,
-                y: 0,
-              }}
-              viewport={{
-                once: true,
-                amount: 0.3,
-              }}
-              transition={{
-                duration: 0.45,
-                delay:
-                  index * 0.05,
-              }}
-            >
-              <div className="asset-cell">
-                <span className="asset-dot" />
+        {filteredMarkets.length > 0 ? (
+          filteredMarkets.map(
+            (market, index) => {
+              const isSelected =
+                market.key ===
+                (selectedMarket?.key || null);
 
-                <div>
+              return (
+                <motion.div
+                  className="market-row"
+                  key={market.key}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={isSelected}
+                  onClick={() =>
+                    selectMarket(market)
+                  }
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === "Enter" ||
+                      event.key === " "
+                    ) {
+                      event.preventDefault();
+                      selectMarket(market);
+                    }
+                  }}
+                  initial={{
+                    opacity: 0,
+                    y: 10,
+                  }}
+                  whileInView={{
+                    opacity: 1,
+                    y: 0,
+                  }}
+                  viewport={{
+                    once: true,
+                    amount: 0.3,
+                  }}
+                  transition={{
+                    duration: 0.45,
+                    delay: index * 0.035,
+                  }}
+                  animate={{
+                    backgroundColor:
+                      isSelected
+                        ? "rgba(255,255,255,0.035)"
+                        : "rgba(0,0,0,0)",
+                  }}
+                  style={{
+                    cursor: "pointer",
+                    outline: "none",
+                  }}
+                >
+                  <div className="asset-cell">
+                    <span className="asset-dot" />
+
+                    <div>
+                      <strong>
+                        {market.asset}
+                      </strong>
+
+                      <small>
+                        {market.network}
+                        {market.collateral
+                          ? ` · ${market.collateral}`
+                          : ""}
+                      </small>
+                    </div>
+                  </div>
+
                   <strong>
-                    {market.asset}
+                    {market.supply}
                   </strong>
 
-                  <small>
-                    {market.network}
-                  </small>
-                </div>
-              </div>
+                  <span>
+                    {market.borrow}
+                  </span>
 
-              <strong>
-                {market.supply}
-              </strong>
-
-              <span>
-                {market.borrow}
-              </span>
-
-              <span>
-                {market.liquidity}
-              </span>
-            </motion.div>
+                  <span>
+                    {market.liquidity}
+                  </span>
+                </motion.div>
+              );
+            }
           )
+        ) : (
+          <div
+            style={{
+              padding: "22px 4px",
+              color: "#626a74",
+              fontSize: 11,
+            }}
+          >
+            No markets match that filter.
+          </div>
         )}
       </div>
 
+      {selectedMarket && (
+        <div
+          style={{
+            marginTop: 14,
+            borderTop: "1px solid var(--line)",
+            paddingTop: 14,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              justifyContent: "space-between",
+              gap: 16,
+            }}
+          >
+            <div>
+              <span className="panel-overline">
+                Market detail
+              </span>
+
+              <div
+                style={{
+                  marginTop: 5,
+                  color: "#e3e8ed",
+                  fontFamily: "var(--font-display)",
+                  fontSize: 18,
+                  letterSpacing: "-0.03em",
+                }}
+              >
+                {selectedMarket.asset}
+                {selectedMarket.collateral
+                  ? ` / ${selectedMarket.collateral}`
+                  : ""}
+              </div>
+            </div>
+
+            <span
+              style={{
+                color: "#68717c",
+                fontSize: 10,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {selectedMarket.network}
+            </span>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns:
+                "repeat(4, minmax(0, 1fr))",
+              gap: 8,
+              marginTop: 12,
+            }}
+          >
+            <PortfolioMetric
+              label="Supply APY"
+              value={selectedMarket.supply}
+            />
+
+            <PortfolioMetric
+              label="Borrow APY"
+              value={selectedMarket.borrow}
+            />
+
+            <PortfolioMetric
+              label="Liquidity"
+              value={selectedMarket.liquidity}
+            />
+
+            <PortfolioMetric
+              label="Utilization"
+              value={selectedMarket.utilization}
+            />
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr auto",
+              alignItems: "center",
+              gap: 12,
+              marginTop: 10,
+              color: "#5f6872",
+              fontSize: 9,
+            }}
+          >
+            <code
+              style={{
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={selectedMarket.marketId}
+            >
+              {selectedMarket.marketId}
+            </code>
+
+            <span>
+              {updatedAt
+                ? `Updated ${updatedAt.toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}`
+                : "Live Morpho data"}
+            </span>
+          </div>
+        </div>
+      )}
+
       <div className="panel-footer">
         <span>
-          Data infrastructure
+          {filteredMarkets.length} markets shown
         </span>
 
         <a
@@ -2342,18 +2719,32 @@ function Reveal({
 async function loadMarketData() {
   const query = `
     query GetMarkets {
-      markets(first: 8) {
+      markets(
+        first: 24
+        orderBy: SupplyAssetsUsd
+        orderDirection: Desc
+        where: { listed: true }
+      ) {
         items {
-          uniqueKey
-
+          marketId
+          chain {
+            id
+          }
           loanAsset {
             symbol
           }
-
+          collateralAsset {
+            symbol
+          }
           state {
             supplyApy
+            avgSupplyApy
             borrowApy
-            liquidityAssets
+            avgBorrowApy
+            liquidityAssetsUsd
+            supplyAssetsUsd
+            borrowAssetsUsd
+            utilization
           }
         }
       }
@@ -2361,89 +2752,90 @@ async function loadMarketData() {
   `;
 
   try {
-    const response =
-      await fetch(
-        MORPHO_API,
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type":
-              "application/json",
-            Accept:
-              "application/json",
-          },
-
-          body: JSON.stringify({
-            query,
-          }),
-        }
-      );
+    const response = await fetch(
+      MORPHO_API,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ query }),
+      }
+    );
 
     if (!response.ok) {
       return [];
     }
 
-    const json =
-      await response.json();
+    const json = await response.json();
 
     if (
-      Array.isArray(
-        json?.errors
-      ) &&
+      Array.isArray(json?.errors) &&
       json.errors.length
     ) {
+      console.error(
+        "Morpho market query failed:",
+        json.errors
+      );
       return [];
     }
 
     const items =
-      json?.data?.markets
-        ?.items;
+      json?.data?.markets?.items;
 
-    if (
-      !Array.isArray(items)
-    ) {
+    if (!Array.isArray(items)) {
       return [];
     }
 
     return items
       .filter(
         (item) =>
-          item?.loanAsset
-            ?.symbol
+          item?.marketId &&
+          item?.loanAsset?.symbol
       )
-      .slice(0, 3)
-      .map(
-        (item) => ({
-          asset:
-            item.loanAsset
-              .symbol,
+      .map((item) => {
+        const chainId = Number(
+          item?.chain?.id
+        );
 
+        return {
+          key: `${chainId}:${item.marketId}`,
+          marketId: item.marketId,
+          chainId,
           network:
-            item?.chain
-              ?.network ||
-            "Morpho",
-
+            chainName(chainId),
+          asset:
+            item.loanAsset.symbol,
+          collateral:
+            item?.collateralAsset?.symbol ||
+            "",
           supply:
             formatPercent(
-              item?.state
-                ?.supplyApy
+              item?.state?.avgSupplyApy ??
+                item?.state?.supplyApy
             ),
-
           borrow:
             formatPercent(
-              item?.state
-                ?.borrowApy
+              item?.state?.avgBorrowApy ??
+                item?.state?.borrowApy
             ),
-
           liquidity:
             formatUsd(
-              item?.state
-                ?.liquidityAssets
+              item?.state?.liquidityAssetsUsd
             ),
-        })
-      );
-  } catch {
+          utilization:
+            formatPercent(
+              item?.state?.utilization
+            ),
+        };
+      });
+  } catch (error) {
+    console.error(
+      "Morpho market request failed:",
+      error
+    );
+
     return [];
   }
 }
@@ -2785,6 +3177,26 @@ function createEmptyPortfolio() {
     vaultCount: 0,
     hasData: false,
   };
+}
+
+function chainName(chainId) {
+  const names = {
+    1: "Ethereum",
+    10: "OP Mainnet",
+    137: "Polygon",
+    130: "Unichain",
+    480: "World Chain",
+    42161: "Arbitrum",
+    8453: "Base",
+    747474: "Katana",
+    999: "HyperEVM",
+    988: "Stable",
+    143: "Monad",
+    4217: "Tempo",
+    4663: "Robinhood Chain",
+  };
+
+  return names[chainId] || `Chain ${chainId}`;
 }
 
 function toNumber(value) {
