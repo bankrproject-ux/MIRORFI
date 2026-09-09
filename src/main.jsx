@@ -1,4 +1,5 @@
 import React, {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -14,6 +15,7 @@ import {
   Mail,
   Menu,
   Network,
+  RefreshCw,
   Shield,
   Wallet,
   X,
@@ -26,30 +28,52 @@ import {
 } from "framer-motion";
 import "./styles.css";
 
-const MORPHO_API = "https://api.morpho.org";
+/* ============================================================
+   CONFIG
+============================================================ */
+
+const MORPHO_API = "https://api.morpho.org/graphql";
 const MORPHO_MCP = "https://mcp.morpho.org/";
+
+const SUPPORTED_CHAINS = {
+  "0x1": {
+    id: 1,
+    name: "Ethereum",
+    symbol: "ETH",
+  },
+  "0x2105": {
+    id: 8453,
+    name: "Base",
+    symbol: "ETH",
+  },
+  "0xa4b1": {
+    id: 42161,
+    name: "Arbitrum",
+    symbol: "ETH",
+  },
+};
 
 const FALLBACK_MARKETS = [
   {
     asset: "USDC",
     network: "Base",
-    supply: "8.91%",
-    borrow: "11.24%",
-    liquidity: "$42.8M",
+    supply: "—",
+    borrow: "—",
+    liquidity: "—",
   },
   {
     asset: "USDT",
     network: "Ethereum",
-    supply: "7.84%",
-    borrow: "10.91%",
-    liquidity: "$31.6M",
+    supply: "—",
+    borrow: "—",
+    liquidity: "—",
   },
   {
     asset: "WETH",
     network: "Base",
-    supply: "3.42%",
-    borrow: "5.87%",
-    liquidity: "$18.2M",
+    supply: "—",
+    borrow: "—",
+    liquidity: "—",
   },
 ];
 
@@ -80,11 +104,30 @@ const CONNECTIONS = [
   },
 ];
 
+/* ============================================================
+   APP
+============================================================ */
+
 function App() {
   const [wallet, setWallet] = useState("");
-  const [walletOpen, setWalletOpen] = useState(false);
-  const [agentOpen, setAgentOpen] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [chainId, setChainId] = useState("");
+  const [nativeBalance, setNativeBalance] =
+    useState(null);
+
+  const [portfolio, setPortfolio] =
+    useState(createEmptyPortfolio());
+
+  const [portfolioLoading, setPortfolioLoading] =
+    useState(false);
+
+  const [walletOpen, setWalletOpen] =
+    useState(false);
+
+  const [agentOpen, setAgentOpen] =
+    useState(false);
+
+  const [mobileOpen, setMobileOpen] =
+    useState(false);
 
   const [markets, setMarkets] =
     useState(FALLBACK_MARKETS);
@@ -92,9 +135,221 @@ function App() {
   const [marketsLive, setMarketsLive] =
     useState(false);
 
+  /* ----------------------------------------------------------
+     Load Morpho market data
+  ---------------------------------------------------------- */
+
   useEffect(() => {
-    fetchMarkets(setMarkets, setMarketsLive);
+    let cancelled = false;
+
+    loadMarketData().then((result) => {
+      if (
+        cancelled ||
+        !Array.isArray(result) ||
+        result.length === 0
+      ) {
+        return;
+      }
+
+      setMarkets(result);
+      setMarketsLive(true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  /* ----------------------------------------------------------
+     Connect wallet
+  ---------------------------------------------------------- */
+
+  const connectWallet = useCallback(
+    async () => {
+      if (!window.ethereum) {
+        setWalletOpen(true);
+        return;
+      }
+
+      try {
+        const accounts =
+          await window.ethereum.request({
+            method: "eth_requestAccounts",
+          });
+
+        const nextAddress =
+          accounts?.[0];
+
+        if (!nextAddress) {
+          return;
+        }
+
+        const nextChainId =
+          await window.ethereum.request({
+            method: "eth_chainId",
+          });
+
+        setWallet(nextAddress);
+        setChainId(nextChainId);
+        setWalletOpen(true);
+
+        await refreshWalletData({
+          address: nextAddress,
+          chainIdHex: nextChainId,
+          setNativeBalance,
+          setPortfolio,
+          setPortfolioLoading,
+        });
+      } catch (error) {
+        console.error(
+          "Wallet connection failed:",
+          error
+        );
+      }
+    },
+    []
+  );
+
+  /* ----------------------------------------------------------
+     Existing connection check
+  ---------------------------------------------------------- */
+
+  useEffect(() => {
+    if (!window.ethereum) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const restoreConnection = async () => {
+      try {
+        const accounts =
+          await window.ethereum.request({
+            method: "eth_accounts",
+          });
+
+        const currentChainId =
+          await window.ethereum.request({
+            method: "eth_chainId",
+          });
+
+        if (
+          cancelled ||
+          !accounts?.[0]
+        ) {
+          return;
+        }
+
+        setWallet(accounts[0]);
+        setChainId(currentChainId);
+
+        await refreshWalletData({
+          address: accounts[0],
+          chainIdHex: currentChainId,
+          setNativeBalance,
+          setPortfolio,
+          setPortfolioLoading,
+        });
+      } catch {
+        // No active wallet connection.
+      }
+    };
+
+    restoreConnection();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /* ----------------------------------------------------------
+     Wallet events
+  ---------------------------------------------------------- */
+
+  useEffect(() => {
+    if (!window.ethereum) {
+      return undefined;
+    }
+
+    const handleAccountsChanged =
+      async (accounts) => {
+        const nextAddress =
+          accounts?.[0] || "";
+
+        setWallet(nextAddress);
+
+        if (!nextAddress) {
+          setNativeBalance(null);
+          setPortfolio(
+            createEmptyPortfolio()
+          );
+          return;
+        }
+
+        try {
+          const currentChainId =
+            await window.ethereum.request({
+              method: "eth_chainId",
+            });
+
+          setChainId(currentChainId);
+
+          await refreshWalletData({
+            address: nextAddress,
+            chainIdHex:
+              currentChainId,
+            setNativeBalance,
+            setPortfolio,
+            setPortfolioLoading,
+          });
+        } catch {
+          // Ignore refresh failure.
+        }
+      };
+
+    const handleChainChanged =
+      async (nextChainId) => {
+        setChainId(nextChainId);
+
+        if (!wallet) {
+          return;
+        }
+
+        await refreshWalletData({
+          address: wallet,
+          chainIdHex: nextChainId,
+          setNativeBalance,
+          setPortfolio,
+          setPortfolioLoading,
+        });
+      };
+
+    window.ethereum.on(
+      "accountsChanged",
+      handleAccountsChanged
+    );
+
+    window.ethereum.on(
+      "chainChanged",
+      handleChainChanged
+    );
+
+    return () => {
+      window.ethereum.removeListener(
+        "accountsChanged",
+        handleAccountsChanged
+      );
+
+      window.ethereum.removeListener(
+        "chainChanged",
+        handleChainChanged
+      );
+    };
+  }, [wallet]);
+
+  /* ----------------------------------------------------------
+     ESCAPE
+  ---------------------------------------------------------- */
 
   useEffect(() => {
     const handleEscape = (event) => {
@@ -120,28 +375,6 @@ function App() {
     };
   }, []);
 
-  const connectWallet = async () => {
-    if (!window.ethereum) {
-      setWalletOpen(true);
-      return;
-    }
-
-    try {
-      const accounts =
-        await window.ethereum.request({
-          method:
-            "eth_requestAccounts",
-        });
-
-      if (accounts?.[0]) {
-        setWallet(accounts[0]);
-        setWalletOpen(false);
-      }
-    } catch {
-      // Connection rejected.
-    }
-  };
-
   const shortWallet = useMemo(() => {
     if (!wallet) {
       return "";
@@ -152,6 +385,18 @@ function App() {
       6
     )}…${wallet.slice(-4)}`;
   }, [wallet]);
+
+  const network =
+    SUPPORTED_CHAINS[chainId] ||
+    null;
+
+  const networkName =
+    network?.name ||
+    "Unsupported network";
+
+  const nativeSymbol =
+    network?.symbol ||
+    "ETH";
 
   return (
     <>
@@ -208,10 +453,31 @@ function App() {
       <WalletModal
         open={walletOpen}
         wallet={wallet}
+        shortWallet={shortWallet}
+        networkName={networkName}
+        nativeSymbol={nativeSymbol}
+        nativeBalance={nativeBalance}
+        portfolio={portfolio}
+        loading={
+          portfolioLoading
+        }
         onClose={() =>
           setWalletOpen(false)
         }
         onConnect={connectWallet}
+        onRefresh={() => {
+          if (!wallet) {
+            return;
+          }
+
+          refreshWalletData({
+            address: wallet,
+            chainIdHex: chainId,
+            setNativeBalance,
+            setPortfolio,
+            setPortfolioLoading,
+          });
+        }}
       />
 
       <AgentModal
@@ -238,11 +504,12 @@ function Navbar({
     useState(false);
 
   useEffect(() => {
-    const update = () => {
-      setScrolled(
-        window.scrollY > 24
-      );
-    };
+    const update =
+      () => {
+        setScrolled(
+          window.scrollY > 24
+        );
+      };
 
     window.addEventListener(
       "scroll",
@@ -275,7 +542,9 @@ function Navbar({
             <span />
           </span>
 
-          <span>MIRORFI</span>
+          <span>
+            MIRORFI
+          </span>
         </a>
 
         <nav className="desktop-nav">
@@ -310,6 +579,7 @@ function Navbar({
               onClick={onConnect}
             >
               <span className="status-dot" />
+
               {shortWallet}
             </button>
           ) : (
@@ -341,12 +611,12 @@ function Navbar({
 function Hero({
   onConnect,
 }) {
-  const heroRef =
+  const ref =
     useRef(null);
 
   const { scrollYProgress } =
     useScroll({
-      target: heroRef,
+      target: ref,
       offset: [
         "start start",
         "end start",
@@ -362,11 +632,12 @@ function Hero({
     }
   );
 
-  const titleY = useTransform(
-    progress,
-    [0, 1],
-    [0, -55]
-  );
+  const titleY =
+    useTransform(
+      progress,
+      [0, 1],
+      [0, -55]
+    );
 
   const titleOpacity =
     useTransform(
@@ -393,7 +664,7 @@ function Hero({
     <section
       className="hero"
       id="top"
-      ref={heroRef}
+      ref={ref}
     >
       <div className="hero-sticky">
         <div className="hero-grid" />
@@ -521,15 +792,15 @@ function BackgroundField() {
     let width = 0;
     let height = 0;
     let frame = 0;
-
     let particles = [];
 
     const resize = () => {
-      const dpr = Math.min(
-        window.devicePixelRatio ||
-          1,
-        2
-      );
+      const dpr =
+        Math.min(
+          window.devicePixelRatio ||
+            1,
+          2
+        );
 
       width =
         canvas.clientWidth;
@@ -807,7 +1078,7 @@ function BackgroundField() {
 }
 
 /* ============================================================
-   CONNECTION
+   CONNECTIONS
 ============================================================ */
 
 function ConnectionSection({
@@ -833,10 +1104,9 @@ function ConnectionSection({
           </h2>
 
           <p>
-            MIRORFI gives the
-            systems you already use
-            a clean path into
-            decentralized finance.
+            MIRORFI gives the systems
+            you already use a clean path
+            into decentralized finance.
           </p>
         </div>
       </Reveal>
@@ -877,8 +1147,8 @@ function ConnectionCard({
     <motion.button
       type="button"
       className="connection-card"
-      onClick={onClick}
       disabled={!onClick}
+      onClick={onClick}
       whileHover={
         onClick
           ? { y: -5 }
@@ -889,9 +1159,7 @@ function ConnectionCard({
         <div className="connection-icon">
           <Icon
             size={18}
-            strokeWidth={
-              1.45
-            }
+            strokeWidth={1.45}
           />
         </div>
 
@@ -951,10 +1219,10 @@ function InfrastructureSection({
               </h2>
 
               <p>
-                A clean interface
-                between your agent
-                and the decentralized
-                markets it can access.
+                A clean interface between
+                your agent and the
+                decentralized markets
+                it can access.
               </p>
             </div>
 
@@ -1003,13 +1271,9 @@ function InfraPoint({
       </span>
 
       <div>
-        <h4>
-          {title}
-        </h4>
+        <h4>{title}</h4>
 
-        <p>
-          {text}
-        </p>
+        <p>{text}</p>
       </div>
     </div>
   );
@@ -1034,6 +1298,7 @@ function MarketPanel({
 
         <div className="live-indicator">
           <span />
+
           {live
             ? "Live"
             : "Available"}
@@ -1074,12 +1339,12 @@ function MarketPanel({
               }}
               viewport={{
                 once: true,
+                amount: 0.3,
               }}
               transition={{
-                duration: 0.5,
+                duration: 0.45,
                 delay:
-                  index *
-                  0.06,
+                  index * 0.05,
               }}
             >
               <div className="asset-cell">
@@ -1118,7 +1383,7 @@ function MarketPanel({
         </span>
 
         <a
-          href={MORPHO_API}
+          href="https://docs.morpho.org/developers/api/get-started/"
           target="_blank"
           rel="noreferrer"
         >
@@ -1149,17 +1414,18 @@ function OwnershipSection() {
       ],
     });
 
-  const lineScale = useSpring(
-    useTransform(
-      scrollYProgress,
-      [0.08, 0.76],
-      [0.2, 1]
-    ),
-    {
-      stiffness: 70,
-      damping: 22,
-    }
-  );
+  const lineScale =
+    useSpring(
+      useTransform(
+        scrollYProgress,
+        [0.08, 0.76],
+        [0.2, 1]
+      ),
+      {
+        stiffness: 70,
+        damping: 22,
+      }
+    );
 
   return (
     <section
@@ -1230,7 +1496,7 @@ function OwnershipNode({
   index,
   title,
   copy,
-  highlight,
+  highlight = false,
 }) {
   return (
     <div
@@ -1293,7 +1559,6 @@ function FinalCTA({
         style={{ scale }}
       >
         <div className="final-grid" />
-
         <div className="final-light" />
 
         <div className="final-content">
@@ -1392,8 +1657,15 @@ function Footer() {
 function WalletModal({
   open,
   wallet,
+  shortWallet,
+  networkName,
+  nativeSymbol,
+  nativeBalance,
+  portfolio,
+  loading,
   onClose,
   onConnect,
+  onRefresh,
 }) {
   const [copied, setCopied] =
     useState(false);
@@ -1402,20 +1674,24 @@ function WalletModal({
     return null;
   }
 
-  const copyApi = async () => {
+  const copyAddress = async () => {
+    if (!wallet) {
+      return;
+    }
+
     try {
       await navigator.clipboard.writeText(
-        MORPHO_API
+        wallet
       );
 
       setCopied(true);
 
       window.setTimeout(
         () => setCopied(false),
-        1400
+        1200
       );
     } catch {
-      // Clipboard unavailable.
+      setCopied(false);
     }
   };
 
@@ -1437,7 +1713,7 @@ function WalletModal({
           scale: 1,
         }}
         transition={{
-          duration: 0.25,
+          duration: 0.24,
         }}
         onMouseDown={(event) =>
           event.stopPropagation()
@@ -1446,11 +1722,15 @@ function WalletModal({
         <div className="modal-heading">
           <div>
             <span className="panel-overline">
-              Wallet
+              {wallet
+                ? "Connected wallet"
+                : "Wallet"}
             </span>
 
             <h3>
-              Connect your wallet.
+              {wallet
+                ? "Your portfolio."
+                : "Connect your wallet."}
             </h3>
           </div>
 
@@ -1463,34 +1743,14 @@ function WalletModal({
           </button>
         </div>
 
-        <p className="modal-copy">
-          Your wallet remains
-          under your control.
-          MIRORFI only requests
-          the connection required
-          for the interface.
-        </p>
-
-        {wallet ? (
-          <div className="connected-state">
-            <div className="connected-icon">
-              <Shield size={20} />
-            </div>
-
-            <div>
-              <span>
-                Connected
-              </span>
-
-              <strong>
-                {wallet.slice(0, 8)}
-                …
-                {wallet.slice(-6)}
-              </strong>
-            </div>
-          </div>
-        ) : (
+        {!wallet ? (
           <>
+            <p className="modal-copy">
+              Connect your wallet to
+              access your financial
+              positions through MIRORFI.
+            </p>
+
             <button
               className="modal-action primary-action"
               onClick={onConnect}
@@ -1503,32 +1763,271 @@ function WalletModal({
                 size={15}
               />
             </button>
+          </>
+        ) : (
+          <>
+            <div className="connected-state">
+              <div className="connected-icon">
+                <Shield size={20} />
+              </div>
 
-            <div className="modal-info">
+              <div
+                style={{
+                  minWidth: 0,
+                  flex: 1,
+                }}
+              >
+                <span>
+                  Connected
+                </span>
+
+                <strong>
+                  {shortWallet}
+                </strong>
+              </div>
+
+              <button
+                className="modal-close"
+                style={{
+                  width: 34,
+                  height: 34,
+                  flexShrink: 0,
+                }}
+                onClick={
+                  copyAddress
+                }
+                aria-label="Copy address"
+              >
+                {copied ? (
+                  "✓"
+                ) : (
+                  <Copy size={14} />
+                )}
+              </button>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns:
+                  "1fr 1fr",
+                gap: 10,
+                marginTop: 12,
+              }}
+            >
+              <PortfolioMetric
+                label="Network"
+                value={networkName}
+              />
+
+              <PortfolioMetric
+                label="Native balance"
+                value={
+                  nativeBalance ===
+                  null
+                    ? "—"
+                    : `${nativeBalance} ${nativeSymbol}`
+                }
+              />
+            </div>
+
+            <div
+              style={{
+                marginTop: 12,
+                padding: 18,
+                border:
+                  "1px solid var(--line)",
+                background:
+                  "rgba(255,255,255,0.018)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems:
+                    "center",
+                  justifyContent:
+                    "space-between",
+                }}
+              >
+                <div>
+                  <span className="panel-overline">
+                    Morpho
+                  </span>
+
+                  <div
+                    style={{
+                      marginTop: 6,
+                      color:
+                        "#e8edf2",
+                      fontFamily:
+                        "var(--font-display)",
+                      fontSize: 19,
+                    }}
+                  >
+                    Portfolio
+                  </div>
+                </div>
+
+                <button
+                  onClick={onRefresh}
+                  disabled={loading}
+                  style={{
+                    width: 34,
+                    height: 34,
+                    display:
+                      "grid",
+                    placeItems:
+                      "center",
+                    border:
+                      "1px solid var(--line)",
+                    borderRadius:
+                      "50%",
+                    background:
+                      "rgba(255,255,255,0.025)",
+                    color:
+                      "#aab1ba",
+                    cursor: loading
+                      ? "wait"
+                      : "pointer",
+                  }}
+                  aria-label="Refresh portfolio"
+                >
+                  <RefreshCw
+                    size={14}
+                    style={{
+                      animation:
+                        loading
+                          ? "mirorfiSpin 1s linear infinite"
+                          : "none",
+                    }}
+                  />
+                </button>
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns:
+                    "1fr 1fr",
+                  gap: 10,
+                  marginTop: 16,
+                }}
+              >
+                <PortfolioMetric
+                  label="Supplied"
+                  value={
+                    portfolio.supplyUsd
+                  }
+                />
+
+                <PortfolioMetric
+                  label="Borrowed"
+                  value={
+                    portfolio.borrowUsd
+                  }
+                />
+
+                <PortfolioMetric
+                  label="Markets"
+                  value={String(
+                    portfolio.marketCount
+                  )}
+                />
+
+                <PortfolioMetric
+                  label="Vaults"
+                  value={String(
+                    portfolio.vaultCount
+                  )}
+                />
+              </div>
+
+              <div
+                style={{
+                  marginTop: 13,
+                  paddingTop: 13,
+                  borderTop:
+                    "1px solid var(--line)",
+                  color:
+                    "#686f79",
+                  fontSize: 10,
+                  lineHeight: 1.6,
+                }}
+              >
+                {loading
+                  ? "Updating Morpho positions…"
+                  : portfolio.hasData
+                  ? "Active Morpho position data found for this wallet."
+                  : "No active Morpho positions found for this wallet."}
+              </div>
+            </div>
+
+            <div
+              className="modal-info"
+              style={{
+                marginTop: 14,
+              }}
+            >
               <span>
-                Connected infrastructure
+                Wallet address
               </span>
 
               <div>
                 <code>
-                  {MORPHO_API}
+                  {wallet}
                 </code>
-
-                <button
-                  onClick={copyApi}
-                  aria-label="Copy API endpoint"
-                >
-                  {copied ? (
-                    "✓"
-                  ) : (
-                    <Copy size={14} />
-                  )}
-                </button>
               </div>
             </div>
           </>
         )}
       </motion.div>
+    </div>
+  );
+}
+
+function PortfolioMetric({
+  label,
+  value,
+}) {
+  return (
+    <div
+      style={{
+        padding:
+          "13px 14px",
+        border:
+          "1px solid var(--line)",
+        background:
+          "rgba(255,255,255,0.018)",
+      }}
+    >
+      <div
+        style={{
+          color: "#626973",
+          fontSize: 9,
+          letterSpacing:
+            "0.14em",
+          textTransform:
+            "uppercase",
+        }}
+      >
+        {label}
+      </div>
+
+      <div
+        style={{
+          marginTop: 7,
+          color: "#e5eaf0",
+          fontFamily:
+            "var(--font-display)",
+          fontSize: 15,
+          fontWeight: 400,
+          letterSpacing:
+            "-0.03em",
+        }}
+      >
+        {value}
+      </div>
     </div>
   );
 }
@@ -1544,9 +2043,7 @@ function AgentModal({
   const [
     endpoint,
     setEndpoint,
-  ] = useState(
-    MORPHO_MCP
-  );
+  ] = useState(MORPHO_MCP);
 
   const [
     agentName,
@@ -1561,12 +2058,15 @@ function AgentModal({
   }
 
   const connectAgent = () => {
+    if (!endpoint.trim()) {
+      return;
+    }
+
     setStatus("connecting");
 
-    window.setTimeout(
-      () => setStatus("connected"),
-      700
-    );
+    window.setTimeout(() => {
+      setStatus("connected");
+    }, 700);
   };
 
   return (
@@ -1587,7 +2087,7 @@ function AgentModal({
           scale: 1,
         }}
         transition={{
-          duration: 0.25,
+          duration: 0.24,
         }}
         onMouseDown={(event) =>
           event.stopPropagation()
@@ -1656,7 +2156,8 @@ function AgentModal({
             connectAgent
           }
           disabled={
-            status === "connecting"
+            status ===
+            "connecting"
           }
         >
           <Network size={18} />
@@ -1835,136 +2336,505 @@ function Reveal({
 }
 
 /* ============================================================
-   MORPHO DATA
+   MORPHO MARKET DATA
 ============================================================ */
 
-async function fetchMarkets(
-  setMarkets,
-  setLive
-) {
+async function loadMarketData() {
+  const query = `
+    query GetMarkets {
+      markets(first: 8) {
+        items {
+          uniqueKey
+
+          loanAsset {
+            symbol
+          }
+
+          state {
+            supplyApy
+            borrowApy
+            liquidityAssets
+          }
+        }
+      }
+    }
+  `;
+
   try {
     const response =
       await fetch(
-        `${MORPHO_API}/graphql`,
+        MORPHO_API,
         {
           method: "POST",
 
           headers: {
             "Content-Type":
               "application/json",
+            Accept:
+              "application/json",
           },
 
           body: JSON.stringify({
-            query: `
-              query {
-                markets(first: 6) {
-                  items {
-                    uniqueKey
-                    loanAsset {
-                      symbol
-                    }
-                    state {
-                      supplyApy
-                      borrowApy
-                      liquidityAssets
-                    }
-                  }
-                }
-              }
-            `,
+            query,
           }),
         }
       );
 
     if (!response.ok) {
-      return;
+      return [];
     }
 
     const json =
       await response.json();
 
+    if (
+      Array.isArray(
+        json?.errors
+      ) &&
+      json.errors.length
+    ) {
+      return [];
+    }
+
     const items =
-      json?.data
-        ?.markets?.items;
+      json?.data?.markets
+        ?.items;
 
     if (
-      !Array.isArray(items) ||
-      items.length === 0
+      !Array.isArray(items)
     ) {
-      return;
+      return [];
     }
 
-    const parsed =
-      items
-        .filter(
-          (item) =>
-            item?.loanAsset
-              ?.symbol
-        )
-        .slice(0, 6)
-        .map(
-          (item) => ({
-            asset:
-              item.loanAsset
-                .symbol,
+    return items
+      .filter(
+        (item) =>
+          item?.loanAsset
+            ?.symbol
+      )
+      .slice(0, 3)
+      .map(
+        (item) => ({
+          asset:
+            item.loanAsset
+              .symbol,
 
-            network:
-              "Morpho",
+          network:
+            item?.chain
+              ?.network ||
+            "Morpho",
 
-            supply:
-              formatPercent(
-                item?.state
-                  ?.supplyApy
-              ),
+          supply:
+            formatPercent(
+              item?.state
+                ?.supplyApy
+            ),
 
-            borrow:
-              formatPercent(
-                item?.state
-                  ?.borrowApy
-              ),
+          borrow:
+            formatPercent(
+              item?.state
+                ?.borrowApy
+            ),
 
-            liquidity:
-              formatUsd(
-                item?.state
-                  ?.liquidityAssets
-              ),
-          })
-        );
-
-    if (parsed.length) {
-      setMarkets(parsed);
-      setLive(true);
-    }
+          liquidity:
+            formatUsd(
+              item?.state
+                ?.liquidityAssets
+            ),
+        })
+      );
   } catch {
-    // Keep fallback.
+    return [];
   }
 }
 
-function formatPercent(
-  value
+/* ============================================================
+   MORPHO USER POSITION
+============================================================ */
+
+async function getMorphoPortfolio(
+  address
 ) {
+  const chainIds = [
+    1,
+    8453,
+    42161,
+  ];
+
+  const results =
+    await Promise.all(
+      chainIds.map(
+        (chainId) =>
+          fetchMorphoUser(
+            address,
+            chainId
+          )
+      )
+    );
+
+  let supplyUsd = 0;
+  let borrowUsd = 0;
+
+  let marketCount = 0;
+  let vaultCount = 0;
+
+  results.forEach(
+    (user) => {
+      if (!user) {
+        return;
+      }
+
+      const marketPositions =
+        Array.isArray(
+          user.marketPositions
+        )
+          ? user.marketPositions
+          : [];
+
+      const vaultPositions =
+        Array.isArray(
+          user.vaultPositions
+        )
+          ? user.vaultPositions
+          : [];
+
+      const vaultV2Positions =
+        Array.isArray(
+          user.vaultV2Positions
+        )
+          ? user.vaultV2Positions
+          : [];
+
+      marketPositions.forEach(
+        (position) => {
+          const state =
+            position?.state;
+
+          const supplied =
+            toNumber(
+              state
+                ?.supplyAssetsUsd
+            );
+
+          const borrowed =
+            toNumber(
+              state
+                ?.borrowAssetsUsd
+            );
+
+          if (
+            supplied > 0 ||
+            borrowed > 0
+          ) {
+            marketCount += 1;
+          }
+
+          supplyUsd +=
+            supplied;
+
+          borrowUsd +=
+            borrowed;
+        }
+      );
+
+      vaultPositions.forEach(
+        (position) => {
+          const assets =
+            toNumber(
+              position
+                ?.state
+                ?.assetsUsd
+            );
+
+          if (assets > 0) {
+            vaultCount += 1;
+            supplyUsd += assets;
+          }
+        }
+      );
+
+      vaultV2Positions.forEach(
+        (position) => {
+          const assets =
+            toNumber(
+              position
+                ?.assetsUsd
+            );
+
+          if (assets > 0) {
+            vaultCount += 1;
+            supplyUsd += assets;
+          }
+        }
+      );
+    }
+  );
+
+  return {
+    supplyUsd:
+      formatCurrency(
+        supplyUsd
+      ),
+
+    borrowUsd:
+      formatCurrency(
+        borrowUsd
+      ),
+
+    marketCount,
+    vaultCount,
+
+    hasData:
+      supplyUsd > 0 ||
+      borrowUsd > 0,
+  };
+}
+
+async function fetchMorphoUser(
+  address,
+  chainId
+) {
+  const query = `
+    query GetUserPortfolio(
+      $address: String!,
+      $chainId: Int!
+    ) {
+      userByAddress(
+        address: $address
+        chainId: $chainId
+      ) {
+        address
+
+        marketPositions {
+          market {
+            uniqueKey
+          }
+
+          state {
+            supplyAssetsUsd
+            borrowAssetsUsd
+          }
+        }
+
+        vaultPositions {
+          vault {
+            address
+            name
+          }
+
+          state {
+            assetsUsd
+          }
+        }
+
+        vaultV2Positions {
+          vault {
+            address
+            name
+          }
+
+          assetsUsd
+        }
+      }
+    }
+  `;
+
+  try {
+    const response =
+      await fetch(
+        MORPHO_API,
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+            Accept:
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            query,
+            variables: {
+              address,
+              chainId,
+            },
+          }),
+        }
+      );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const json =
+      await response.json();
+
+    if (
+      Array.isArray(
+        json?.errors
+      ) &&
+      json.errors.length
+    ) {
+      return null;
+    }
+
+    return (
+      json?.data
+        ?.userByAddress ||
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
+/* ============================================================
+   WALLET DATA
+============================================================ */
+
+async function refreshWalletData({
+  address,
+  chainIdHex,
+  setNativeBalance,
+  setPortfolio,
+  setPortfolioLoading,
+}) {
+  if (!address) {
+    return;
+  }
+
+  setPortfolioLoading(true);
+
+  try {
+    const [
+      balance,
+      morpho,
+    ] =
+      await Promise.all([
+        getNativeBalance(
+          address
+        ),
+        getMorphoPortfolio(
+          address
+        ),
+      ]);
+
+    setNativeBalance(
+      balance
+    );
+
+    setPortfolio(
+      morpho
+    );
+  } catch (
+    error
+  ) {
+    console.error(
+      "Wallet data refresh failed:",
+      error
+    );
+
+    setNativeBalance(null);
+
+    setPortfolio(
+      createEmptyPortfolio()
+    );
+  } finally {
+    setPortfolioLoading(false);
+  }
+}
+
+async function getNativeBalance(
+  address
+) {
+  if (!window.ethereum) {
+    return null;
+  }
+
+  try {
+    const hex =
+      await window.ethereum.request(
+        {
+          method:
+            "eth_getBalance",
+          params: [
+            address,
+            "latest",
+          ],
+        }
+      );
+
+    return formatEther(
+      hex
+    );
+  } catch {
+    return null;
+  }
+}
+
+/* ============================================================
+   HELPERS
+============================================================ */
+
+function createEmptyPortfolio() {
+  return {
+    supplyUsd: "$0",
+    borrowUsd: "$0",
+    marketCount: 0,
+    vaultCount: 0,
+    hasData: false,
+  };
+}
+
+function toNumber(value) {
   const number =
     Number(value);
 
-  if (!Number.isFinite(number)) {
-    return "—";
+  return Number.isFinite(
+    number
+  )
+    ? number
+    : 0;
+}
+
+function formatCurrency(value) {
+  if (
+    !Number.isFinite(value)
+  ) {
+    return "$0";
   }
 
-  const percent =
-    number > 1
-      ? number
-      : number * 100;
+  if (value >= 1e9) {
+    return `$${(
+      value / 1e9
+    ).toFixed(2)}B`;
+  }
 
-  return `${percent.toFixed(
+  if (value >= 1e6) {
+    return `$${(
+      value / 1e6
+    ).toFixed(2)}M`;
+  }
+
+  if (value >= 1e3) {
+    return `$${(
+      value / 1e3
+    ).toFixed(2)}K`;
+  }
+
+  return `$${value.toFixed(
     2
-  )}%`;
+  )}`;
 }
 
 function formatUsd(value) {
   const number =
     Number(value);
 
-  if (!Number.isFinite(number)) {
+  if (
+    !Number.isFinite(number)
+  ) {
     return "—";
   }
 
@@ -1990,6 +2860,86 @@ function formatUsd(value) {
     0
   )}`;
 }
+
+function formatPercent(value) {
+  const number =
+    Number(value);
+
+  if (
+    !Number.isFinite(number)
+  ) {
+    return "—";
+  }
+
+  const percent =
+    number > 1
+      ? number
+      : number * 100;
+
+  return `${percent.toFixed(
+    2
+  )}%`;
+}
+
+function formatEther(hex) {
+  if (!hex) {
+    return "—";
+  }
+
+  try {
+    const value =
+      BigInt(hex);
+
+    const base =
+      10n ** 18n;
+
+    const whole =
+      value / base;
+
+    const fraction =
+      value % base;
+
+    const fractionText =
+      fraction
+        .toString()
+        .padStart(
+          18,
+          "0"
+        )
+        .slice(0, 5);
+
+    return `${whole}.${fractionText}`
+      .replace(
+        /0+$/,
+        ""
+      );
+  } catch {
+    return "—";
+  }
+}
+
+/* ============================================================
+   APPEND SPIN KEYFRAME
+============================================================ */
+
+const style =
+  document.createElement("style");
+
+style.textContent = `
+  @keyframes mirorfiSpin {
+    from {
+      transform: rotate(0deg);
+    }
+
+    to {
+      transform: rotate(360deg);
+    }
+  }
+`;
+
+document.head.appendChild(
+  style
+);
 
 /* ============================================================
    ROOT
