@@ -8,33 +8,23 @@ import {
   Globe2,
   Mail,
   Menu,
-  MessageCircle,
   Network,
   Shield,
-  Sparkles,
   Wallet,
   X,
-  Zap,
 } from "lucide-react";
-import { motion, useScroll, useSpring, useTransform } from "framer-motion";
+import {
+  motion,
+  useScroll,
+  useSpring,
+  useTransform,
+} from "framer-motion";
 import "./styles.css";
-
-/*
-  MIRORFI
-  --------
-  Premium DeFi infrastructure interface for user-owned agents.
-
-  This initial app is intentionally frontend-first:
-  - No MIRORFI smart contract.
-  - Wallet connection uses the browser wallet provider.
-  - Morpho public API is used for read-only discovery where available.
-  - MCP connection is represented as an external agent connection flow.
-*/
 
 const MORPHO_API = "https://api.morpho.org";
 const MORPHO_MCP = "https://mcp.morpho.org/";
 
-const demoMarkets = [
+const fallbackMarkets = [
   {
     asset: "USDC",
     network: "Base",
@@ -87,96 +77,24 @@ const connectionItems = [
 
 function App() {
   const [wallet, setWallet] = useState("");
-  const [connectOpen, setConnectOpen] = useState(false);
+  const [walletOpen, setWalletOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [markets, setMarkets] = useState(demoMarkets);
-  const [loadingMarkets, setLoadingMarkets] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
-  const loadMarkets = async () => {
-    setLoadingMarkets(true);
-
-    try {
-      /*
-        Morpho exposes GraphQL-style API infrastructure.
-        We intentionally keep the call isolated so the UI can
-        continue working if the endpoint/schema changes.
-      */
-
-      const response = await fetch(`${MORPHO_API}/graphql`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          query: `
-            query {
-              markets(first: 6) {
-                items {
-                  uniqueKey
-                  loanAsset {
-                    symbol
-                  }
-                  state {
-                    supplyApy
-                    borrowApy
-                    liquidityAssets
-                  }
-                }
-              }
-            }
-          `,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Morpho API unavailable");
-      }
-
-      const json = await response.json();
-
-      const items = json?.data?.markets?.items;
-
-      if (!Array.isArray(items) || items.length === 0) {
-        return;
-      }
-
-      const parsed = items
-        .filter((item) => item?.loanAsset?.symbol)
-        .slice(0, 6)
-        .map((item) => ({
-          asset: item.loanAsset.symbol,
-          network: "Morpho",
-          supply: formatPercent(item?.state?.supplyApy),
-          borrow: formatPercent(item?.state?.borrowApy),
-          liquidity: formatUsd(item?.state?.liquidityAssets),
-        }));
-
-      if (parsed.length) {
-        setMarkets(parsed);
-      }
-    } catch {
-      /*
-        Keep the polished interface usable when the public
-        endpoint is unavailable. The fallback is intentionally
-        isolated here rather than pretending it is live data.
-      */
-    } finally {
-      setLoadingMarkets(false);
-    }
-  };
+  const [markets, setMarkets] = useState(fallbackMarkets);
+  const [marketsLive, setMarketsLive] = useState(false);
 
   useEffect(() => {
-    loadMarkets();
+    loadMorphoMarkets();
   }, []);
 
   useEffect(() => {
     const onKeyDown = (event) => {
-      if (event.key === "Escape") {
-        setConnectOpen(false);
-        setAgentOpen(false);
-        setMenuOpen(false);
-      }
+      if (event.key !== "Escape") return;
+
+      setWalletOpen(false);
+      setAgentOpen(false);
+      setMobileOpen(false);
     };
 
     window.addEventListener("keydown", onKeyDown);
@@ -186,14 +104,9 @@ function App() {
     };
   }, []);
 
-  const shortenedWallet = useMemo(() => {
-    if (!wallet) return "";
-    return `${wallet.slice(0, 6)}…${wallet.slice(-4)}`;
-  }, [wallet]);
-
   const connectWallet = async () => {
     if (!window.ethereum) {
-      setConnectOpen(true);
+      setWalletOpen(true);
       return;
     }
 
@@ -204,49 +117,55 @@ function App() {
 
       if (accounts?.[0]) {
         setWallet(accounts[0]);
-        setConnectOpen(false);
+        setWalletOpen(false);
       }
     } catch {
-      // User rejected wallet connection.
+      // Wallet request cancelled.
     }
   };
+
+  const shortenedWallet = useMemo(() => {
+    if (!wallet) return "";
+
+    return `${wallet.slice(0, 6)}…${wallet.slice(-4)}`;
+  }, [wallet]);
 
   return (
     <>
       <Navbar
         wallet={wallet}
         shortenedWallet={shortenedWallet}
-        onConnect={() => setConnectOpen(true)}
-        onMenu={() => setMenuOpen(true)}
+        onConnect={() => setWalletOpen(true)}
+        onMenu={() => setMobileOpen(true)}
       />
 
       <MobileMenu
-        open={menuOpen}
-        onClose={() => setMenuOpen(false)}
+        open={mobileOpen}
+        onClose={() => setMobileOpen(false)}
         onConnect={() => {
-          setMenuOpen(false);
-          setConnectOpen(true);
+          setMobileOpen(false);
+          setWalletOpen(true);
         }}
       />
 
       <main>
-        <Hero onConnect={() => setConnectOpen(true)} />
+        <Hero onConnect={connectWallet} />
 
         <ConnectionSection
-          onAgent={() => setAgentOpen(true)}
+          onMcp={() => setAgentOpen(true)}
         />
 
         <InfrastructureSection
           markets={markets}
-          loading={loadingMarkets}
+          live={marketsLive}
         />
 
         <OwnershipSection />
 
-        <MorphoSection />
+        <ProtocolSection />
 
         <FinalCTA
-          onConnect={() => setConnectOpen(true)}
+          onWallet={connectWallet}
           onAgent={() => setAgentOpen(true)}
         />
       </main>
@@ -254,9 +173,9 @@ function App() {
       <Footer />
 
       <WalletModal
-        open={connectOpen}
+        open={walletOpen}
         wallet={wallet}
-        onClose={() => setConnectOpen(false)}
+        onClose={() => setWalletOpen(false)}
         onConnect={connectWallet}
       />
 
@@ -281,14 +200,14 @@ function Navbar({
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
-    const onScroll = () => {
-      setScrolled(window.scrollY > 32);
+    const handleScroll = () => {
+      setScrolled(window.scrollY > 24);
     };
 
-    window.addEventListener("scroll", onScroll);
+    window.addEventListener("scroll", handleScroll);
 
     return () => {
-      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("scroll", handleScroll);
     };
   }, []);
 
@@ -307,11 +226,11 @@ function Navbar({
         <nav className="desktop-nav">
           <a href="#connections">Products</a>
           <a href="#infrastructure">Infrastructure</a>
-          <a href="#morpho">Developers</a>
+          <a href="#protocols">Developers</a>
 
           <button className="nav-dropdown">
             Resources
-            <ChevronDown size={14} />
+            <ChevronDown size={13} />
           </button>
 
           <a href="#connect">About</a>
@@ -319,12 +238,18 @@ function Navbar({
 
         <div className="nav-right">
           {wallet ? (
-            <button className="wallet-pill" onClick={onConnect}>
+            <button
+              className="wallet-pill"
+              onClick={onConnect}
+            >
               <span className="status-dot" />
               {shortenedWallet}
             </button>
           ) : (
-            <button className="nav-connect" onClick={onConnect}>
+            <button
+              className="nav-connect"
+              onClick={onConnect}
+            >
               Connect
             </button>
           )}
@@ -334,7 +259,7 @@ function Navbar({
             onClick={onMenu}
             aria-label="Open menu"
           >
-            <Menu size={21} />
+            <Menu size={20} />
           </button>
         </div>
       </div>
@@ -354,26 +279,61 @@ function Hero({ onConnect }) {
     offset: ["start start", "end start"],
   });
 
-  const smoothProgress = useSpring(scrollYProgress, {
+  const progress = useSpring(scrollYProgress, {
     stiffness: 90,
-    damping: 24,
+    damping: 26,
     mass: 0.6,
   });
 
-  const orbY = useTransform(smoothProgress, [0, 1], [0, 160]);
-  const orbScale = useTransform(smoothProgress, [0, 1], [1, 0.78]);
-  const orbRotate = useTransform(smoothProgress, [0, 1], [0, 25]);
-  const copyY = useTransform(smoothProgress, [0, 1], [0, -55]);
+  const copyY = useTransform(
+    progress,
+    [0, 1],
+    [0, -45]
+  );
+
   const copyOpacity = useTransform(
-    smoothProgress,
-    [0, 0.55, 1],
-    [1, 0.95, 0]
+    progress,
+    [0, 0.72, 1],
+    [1, 0.94, 0]
+  );
+
+  const atmosphereY = useTransform(
+    progress,
+    [0, 1],
+    [0, 90]
+  );
+
+  const atmosphereScale = useTransform(
+    progress,
+    [0, 1],
+    [1, 1.13]
+  );
+
+  const atmosphereRotate = useTransform(
+    progress,
+    [0, 1],
+    [0, 7]
   );
 
   return (
-    <section className="hero" id="top" ref={ref}>
+    <section
+      className="hero"
+      id="top"
+      ref={ref}
+    >
       <div className="hero-sticky">
         <div className="hero-grid" />
+
+        <motion.div
+          className="hero-atmosphere"
+          style={{
+            y: atmosphereY,
+            scale: atmosphereScale,
+            rotate: atmosphereRotate,
+          }}
+        >
+          <BackgroundField />
+        </motion.div>
 
         <motion.div
           className="hero-copy"
@@ -382,7 +342,9 @@ function Hero({ onConnect }) {
             opacity: copyOpacity,
           }}
         >
-          <p className="eyebrow">Open financial infrastructure</p>
+          <p className="eyebrow">
+            Open financial infrastructure
+          </p>
 
           <h1>
             DeFi, mirrored
@@ -391,37 +353,32 @@ function Hero({ onConnect }) {
           </h1>
 
           <p className="hero-description">
-            Connect your wallet, your agent, and open financial
-            infrastructure through one elegant interface.
+            Connect your wallet, your agent, and decentralized
+            financial infrastructure through one open interface.
           </p>
 
           <div className="hero-actions">
-            <button className="primary-button" onClick={onConnect}>
+            <button
+              className="primary-button"
+              onClick={onConnect}
+            >
               Get started
               <ArrowUpRight size={16} />
             </button>
 
-            <a href="#infrastructure" className="text-button">
+            <a
+              href="#infrastructure"
+              className="text-button"
+            >
               Explore infrastructure
             </a>
           </div>
         </motion.div>
 
-        <motion.div
-          className="orb-stage"
-          style={{
-            y: orbY,
-            scale: orbScale,
-            rotate: orbRotate,
-          }}
-        >
-          <ParticleOrb />
-        </motion.div>
-
         <div className="hero-bottom">
           <div className="hero-metric">
-            <span>Built for</span>
-            <strong>Agents</strong>
+            <span>Designed for</span>
+            <strong>Agent-owned workflows</strong>
           </div>
 
           <div className="hero-scroll">
@@ -430,8 +387,8 @@ function Hero({ onConnect }) {
           </div>
 
           <div className="hero-metric hero-metric-right">
-            <span>Infrastructure</span>
-            <strong>Open by design</strong>
+            <span>Built around</span>
+            <strong>Open liquidity</strong>
           </div>
         </div>
       </div>
@@ -440,10 +397,10 @@ function Hero({ onConnect }) {
 }
 
 /* ============================================================
-   PARTICLE ORB
+   BACKGROUND FIELD
 ============================================================ */
 
-function ParticleOrb() {
+function BackgroundField() {
   const canvasRef = useRef(null);
 
   useEffect(() => {
@@ -455,13 +412,16 @@ function ParticleOrb() {
 
     const context = canvas.getContext("2d");
 
-    let animationFrame = 0;
     let width = 0;
     let height = 0;
+    let frame = 0;
     let particles = [];
 
     const resize = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = Math.min(
+        window.devicePixelRatio || 1,
+        2
+      );
 
       width = canvas.clientWidth;
       height = canvas.clientHeight;
@@ -469,115 +429,196 @@ function ParticleOrb() {
       canvas.width = width * dpr;
       canvas.height = height * dpr;
 
-      context.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-      const count = Math.min(
-        4200,
-        Math.max(1600, Math.floor((width * height) / 190))
+      context.setTransform(
+        dpr,
+        0,
+        0,
+        dpr,
+        0,
+        0
       );
 
-      particles = Array.from({ length: count }, () => {
-        const u = Math.random();
-        const v = Math.random();
+      const density =
+        window.innerWidth > 1100 ? 1100 : 760;
 
-        const theta = Math.PI * 2 * u;
-        const phi = Math.acos(2 * v - 1);
-
-        return {
-          x: Math.sin(phi) * Math.cos(theta),
-          y: Math.sin(phi) * Math.sin(theta),
-          z: Math.cos(phi),
-          depth: Math.random(),
-          drift: Math.random() * Math.PI * 2,
-          size: Math.random() * 1.25 + 0.18,
-          alpha: Math.random() * 0.7 + 0.12,
-        };
-      });
+      particles = Array.from(
+        { length: density },
+        (_, index) => ({
+          x: Math.random() * width,
+          y: Math.random() * height,
+          vx: (Math.random() - 0.5) * 0.12,
+          vy: (Math.random() - 0.5) * 0.09,
+          radius: Math.random() * 1.35 + 0.25,
+          alpha: Math.random() * 0.42 + 0.08,
+          phase:
+            (index / density) *
+            Math.PI *
+            2,
+        })
+      );
     };
 
     const draw = (time) => {
-      context.clearRect(0, 0, width, height);
+      context.clearRect(
+        0,
+        0,
+        width,
+        height
+      );
 
-      const cx = width / 2;
-      const cy = height / 2;
+      const centerX = width / 2;
+      const centerY = height * 0.53;
 
-      const radius = Math.min(width, height) * 0.365;
-      const rotation = time * 0.00016;
+      for (let i = 0; i < particles.length; i += 1) {
+        const p = particles[i];
 
-      for (let index = 0; index < particles.length; index += 1) {
-        const particle = particles[index];
+        p.x += p.vx;
+        p.y += p.vy;
 
-        const cos = Math.cos(rotation);
-        const sin = Math.sin(rotation);
+        if (p.x < -10) p.x = width + 10;
+        if (p.x > width + 10) p.x = -10;
 
-        const x = particle.x * cos - particle.z * sin;
-        const z = particle.x * sin + particle.z * cos;
+        if (p.y < -10) p.y = height + 10;
+        if (p.y > height + 10) p.y = -10;
+
+        const dx = p.x - centerX;
+        const dy = p.y - centerY;
+
+        const distance = Math.sqrt(
+          dx * dx + dy * dy
+        );
+
+        const influence =
+          Math.max(
+            0,
+            1 - distance / 780
+          );
 
         const pulse =
-          1 +
-          Math.sin(time * 0.00065 + particle.drift) * 0.012;
-
-        const pointRadius = radius * pulse;
-
-        const px = cx + x * pointRadius;
-        const py = cy + particle.y * pointRadius;
-
-        const depth = (z + 1) / 2;
+          0.5 +
+          0.5 *
+            Math.sin(
+              time * 0.00045 +
+                p.phase
+            );
 
         const alpha =
-          particle.alpha *
-          (0.2 + depth * 0.9);
+          p.alpha *
+          (0.45 + influence * 0.9) *
+          (0.68 + pulse * 0.32);
 
-        const size =
-          particle.size *
-          (0.42 + depth * 1.3);
-
-        const isBright = depth > 0.73;
-
-        context.fillStyle = isBright
-          ? `rgba(162, 208, 255, ${alpha})`
-          : `rgba(71, 136, 207, ${alpha * 0.75})`;
+        context.fillStyle =
+          `rgba(109, 176, 237, ${alpha})`;
 
         context.beginPath();
-        context.arc(px, py, size, 0, Math.PI * 2);
+
+        context.arc(
+          p.x,
+          p.y,
+          p.radius *
+            (0.7 + influence * 0.75),
+          0,
+          Math.PI * 2
+        );
+
         context.fill();
       }
 
-      animationFrame = requestAnimationFrame(draw);
+      /* soft orbital lines */
+      const rings = [
+        210,
+        340,
+        490,
+        650,
+      ];
+
+      rings.forEach((radius, index) => {
+        const rotation =
+          time * 0.000015 *
+          (index % 2 === 0 ? 1 : -1);
+
+        context.save();
+
+        context.translate(
+          centerX,
+          centerY
+        );
+
+        context.rotate(rotation);
+
+        context.beginPath();
+
+        context.ellipse(
+          0,
+          0,
+          radius,
+          radius * 0.34,
+          0,
+          0,
+          Math.PI * 2
+        );
+
+        context.strokeStyle =
+          `rgba(94, 159, 222, ${
+            0.018 + index * 0.006
+          })`;
+
+        context.lineWidth = 1;
+
+        context.stroke();
+
+        context.restore();
+      });
+
+      frame = requestAnimationFrame(draw);
     };
 
     resize();
-    window.addEventListener("resize", resize);
-    animationFrame = requestAnimationFrame(draw);
+
+    window.addEventListener(
+      "resize",
+      resize
+    );
+
+    frame =
+      requestAnimationFrame(draw);
 
     return () => {
-      window.removeEventListener("resize", resize);
-      cancelAnimationFrame(animationFrame);
+      window.removeEventListener(
+        "resize",
+        resize
+      );
+
+      cancelAnimationFrame(frame);
     };
   }, []);
 
   return (
-    <div className="particle-orb">
-      <canvas ref={canvasRef} />
-      <div className="orb-core">
-        <span>M</span>
-      </div>
-      <div className="orb-ring orb-ring-one" />
-      <div className="orb-ring orb-ring-two" />
-    </div>
+    <canvas
+      ref={canvasRef}
+      className="background-field"
+      aria-hidden="true"
+    />
   );
 }
 
 /* ============================================================
-   CONNECTION SECTION
+   CONNECTION
 ============================================================ */
 
-function ConnectionSection({ onAgent }) {
+function ConnectionSection({
+  onMcp,
+}) {
   return (
-    <section className="content-section" id="connections">
-      <RevealBlock>
+    <section
+      className="content-section"
+      id="connections"
+    >
+      <Reveal>
         <div className="section-heading">
-          <p className="section-kicker">01 / Connection</p>
+          <p className="section-kicker">
+            01 / Connection
+          </p>
 
           <h2>
             Bring your own
@@ -586,51 +627,67 @@ function ConnectionSection({ onAgent }) {
           </h2>
 
           <p>
-            MIRORFI connects the systems your agent already uses
-            to decentralized financial infrastructure.
+            MIRORFI gives the systems you already use
+            a clean path into decentralized finance.
           </p>
         </div>
-      </RevealBlock>
+      </Reveal>
 
       <div className="connection-grid">
-        {connectionItems.map((item, index) => (
-          <RevealBlock key={item.title} delay={index * 0.07}>
-            <ConnectionCard
-              item={item}
-              onClick={item.title === "MCP" ? onAgent : undefined}
-            />
-          </RevealBlock>
-        ))}
+        {connectionItems.map(
+          (item, index) => (
+            <Reveal
+              key={item.title}
+              delay={index * 0.07}
+            >
+              <ConnectionCard
+                item={item}
+                onClick={
+                  item.title === "MCP"
+                    ? onMcp
+                    : undefined
+                }
+              />
+            </Reveal>
+          )
+        )}
       </div>
     </section>
   );
 }
 
-function ConnectionCard({ item, onClick }) {
+function ConnectionCard({
+  item,
+  onClick,
+}) {
   const Icon = item.icon;
 
   return (
     <motion.button
       type="button"
       className="connection-card"
-      whileHover={{
-        y: -6,
-        transition: {
-          duration: 0.25,
-        },
-      }}
       onClick={onClick}
       disabled={!onClick}
+      whileHover={
+        onClick
+          ? {
+              y: -5,
+            }
+          : undefined
+      }
     >
       <div className="connection-card-top">
         <div className="connection-icon">
-          <Icon size={19} strokeWidth={1.5} />
+          <Icon
+            size={18}
+            strokeWidth={1.45}
+          />
         </div>
 
         <ArrowUpRight
           className="connection-arrow"
           size={18}
-          strokeWidth={1.4}
+          strokeWidth={1.35}
         />
       </div>
 
@@ -653,7 +710,7 @@ function ConnectionCard({ item, onClick }) {
 
 function InfrastructureSection({
   markets,
-  loading,
+  live,
 }) {
   return (
     <section
@@ -661,9 +718,11 @@ function InfrastructureSection({
       id="infrastructure"
     >
       <div className="infrastructure-layout">
-        <RevealBlock className="infrastructure-copy">
+        <Reveal className="infrastructure-copy">
           <div className="section-heading">
-            <p className="section-kicker">02 / Infrastructure</p>
+            <p className="section-kicker">
+              02 / Infrastructure
+            </p>
 
             <h2>
               Open liquidity,
@@ -672,8 +731,8 @@ function InfrastructureSection({
             </h2>
 
             <p>
-              A clean interface between your agent and the
-              decentralized markets it can access.
+              A clean interface between your agent
+              and the decentralized markets it can access.
             </p>
           </div>
 
@@ -687,7 +746,7 @@ function InfrastructureSection({
             <InfraPoint
               number="02"
               title="Vaults"
-              text="Explore curated strategies and positions."
+              text="Explore strategies and yield opportunities."
             />
 
             <InfraPoint
@@ -696,17 +755,27 @@ function InfrastructureSection({
               text="Keep financial activity in one view."
             />
           </div>
-        </RevealBlock>
+        </Reveal>
 
-        <RevealBlock delay={0.12} className="market-panel-wrap">
-          <MarketPanel markets={markets} loading={loading} />
-        </RevealBlock>
+        <Reveal
+          delay={0.1}
+          className="market-panel-wrap"
+        >
+          <MarketPanel
+            markets={markets}
+            live={live}
+          />
+        </Reveal>
       </div>
     </section>
   );
 }
 
-function InfraPoint({ number, title, text }) {
+function InfraPoint({
+  number,
+  title,
+  text,
+}) {
   return (
     <div className="infra-point">
       <span>{number}</span>
@@ -719,18 +788,26 @@ function InfraPoint({ number, title, text }) {
   );
 }
 
-function MarketPanel({ markets, loading }) {
+function MarketPanel({
+  markets,
+  live,
+}) {
   return (
     <div className="market-panel">
       <div className="market-panel-header">
         <div>
-          <span className="panel-overline">Selected markets</span>
-          <h3>Liquidity overview</h3>
+          <span className="panel-overline">
+            Selected markets
+          </span>
+
+          <h3>
+            Liquidity overview
+          </h3>
         </div>
 
         <div className="live-indicator">
           <span />
-          {loading ? "Updating" : "Live"}
+          {live ? "Live" : "Available"}
         </div>
       </div>
 
@@ -742,35 +819,63 @@ function MarketPanel({ markets, loading }) {
           <span>Liquidity</span>
         </div>
 
-        {markets.map((market, index) => (
-          <motion.div
-            className="market-row"
-            key={`${market.asset}-${index}`}
-            initial={{ opacity: 0, y: 10 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, amount: 0.4 }}
-            transition={{
-              duration: 0.5,
-              delay: index * 0.07,
-            }}
-          >
-            <div className="asset-cell">
-              <span className="asset-dot" />
-              <div>
-                <strong>{market.asset}</strong>
-                <small>{market.network}</small>
-              </div>
-            </div>
+        {markets.map(
+          (market, index) => (
+            <motion.div
+              className="market-row"
+              key={`${market.asset}-${index}`}
+              initial={{
+                opacity: 0,
+                y: 12,
+              }}
+              whileInView={{
+                opacity: 1,
+                y: 0,
+              }}
+              viewport={{
+                once: true,
+                amount: 0.4,
+              }}
+              transition={{
+                duration: 0.5,
+                delay: index * 0.06,
+              }}
+            >
+              <div className="asset-cell">
+                <span className="asset-dot" />
 
-            <strong>{market.supply}</strong>
-            <span>{market.borrow}</span>
-            <span>{market.liquidity}</span>
-          </motion.div>
-        ))}
+                <div>
+                  <strong>
+                    {market.asset}
+                  </strong>
+
+                  <small>
+                    {market.network}
+                  </small>
+                </div>
+              </div>
+
+              <strong>
+                {market.supply}
+              </strong>
+
+              <span>
+                {market.borrow}
+              </span>
+
+              <span>
+                {market.liquidity}
+              </span>
+            </motion.div>
+          )
+        )}
       </div>
 
       <div className="panel-footer">
-        <span>Data layer</span>
+        <span>
+          Data infrastructure
+        </span>
+
         <a
           href={MORPHO_API}
           target="_blank"
@@ -793,13 +898,20 @@ function OwnershipSection() {
 
   const { scrollYProgress } = useScroll({
     target: ref,
-    offset: ["start end", "end start"],
+    offset: [
+      "start end",
+      "end start",
+    ],
   });
 
   const lineScale = useSpring(
-    useTransform(scrollYProgress, [0.1, 0.72], [0.2, 1]),
+    useTransform(
+      scrollYProgress,
+      [0.08, 0.75],
+      [0.18, 1]
+    ),
     {
-      stiffness: 80,
+      stiffness: 70,
       damping: 22,
     }
   );
@@ -811,35 +923,41 @@ function OwnershipSection() {
     >
       <div className="ownership-glow" />
 
-      <RevealBlock className="ownership-content">
-        <p className="section-kicker">03 / Ownership</p>
+      <Reveal className="ownership-content">
+        <p className="section-kicker">
+          03 / Ownership
+        </p>
 
         <h2>
           Your agent stays yours.
           <br />
-          <span>MIRORFI stays underneath.</span>
+          <span>
+            MIRORFI stays underneath.
+          </span>
         </h2>
 
         <p>
           Your agent chooses the action.
-          MIRORFI provides the financial connection layer.
+          MIRORFI provides the connection layer.
         </p>
-      </RevealBlock>
+      </Reveal>
 
       <div className="ownership-network">
         <OwnershipNode
-          top="01"
+          index="01"
           title="YOUR AGENT"
           copy="Your intelligence"
         />
 
         <motion.div
           className="ownership-line"
-          style={{ scaleX: lineScale }}
+          style={{
+            scaleX: lineScale,
+          }}
         />
 
         <OwnershipNode
-          top="02"
+          index="02"
           title="MIRORFI"
           copy="Your interface layer"
           highlight
@@ -847,11 +965,13 @@ function OwnershipSection() {
 
         <motion.div
           className="ownership-line"
-          style={{ scaleX: lineScale }}
+          style={{
+            scaleX: lineScale,
+          }}
         />
 
         <OwnershipNode
-          top="03"
+          index="03"
           title="OPEN DEFI"
           copy="Your liquidity"
         />
@@ -861,38 +981,46 @@ function OwnershipSection() {
 }
 
 function OwnershipNode({
-  top,
+  index,
   title,
   copy,
-  highlight = false,
+  highlight,
 }) {
   return (
-    <div className={`ownership-node ${highlight ? "highlight" : ""}`}>
-      <span>{top}</span>
+    <div
+      className={`ownership-node ${
+        highlight ? "highlight" : ""
+      }`}
+    >
+      <span>{index}</span>
+
       <strong>{title}</strong>
+
       <small>{copy}</small>
     </div>
   );
 }
 
 /* ============================================================
-   MORPHO
+   PROTOCOL
 ============================================================ */
 
-function MorphoSection() {
+function ProtocolSection() {
   return (
-    <section className="content-section morpho-section" id="morpho">
-      <RevealBlock>
+    <section
+      className="content-section morpho-section"
+      id="protocols"
+    >
+      <Reveal>
         <div className="morpho-shell">
           <div className="morpho-orbit">
-            <div className="orbit-center">M</div>
-            <div className="orbit orbit-a" />
-            <div className="orbit orbit-b" />
-            <div className="orbit orbit-c" />
+            <ProtocolVisual />
           </div>
 
           <div className="morpho-copy">
-            <p className="section-kicker">04 / Protocols</p>
+            <p className="section-kicker">
+              04 / Protocols
+            </p>
 
             <h2>
               Built on
@@ -901,25 +1029,51 @@ function MorphoSection() {
             </h2>
 
             <p>
-              MIRORFI can connect to existing DeFi infrastructure
-              instead of asking users to move into another
-              closed financial system.
+              MIRORFI connects to existing DeFi
+              infrastructure instead of replacing it.
             </p>
 
-            <div className="protocol-badge">
-              <span className="protocol-logo">M</span>
+            <a
+              className="protocol-badge"
+              href="https://morpho.org/"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span className="protocol-logo">
+                M
+              </span>
 
               <div>
                 <strong>Morpho</strong>
-                <small>API + agent infrastructure</small>
+                <small>
+                  API + agent infrastructure
+                </small>
               </div>
 
               <ExternalLink size={15} />
-            </div>
+            </a>
           </div>
         </div>
-      </RevealBlock>
+      </Reveal>
     </section>
+  );
+}
+
+function ProtocolVisual() {
+  return (
+    <div className="protocol-visual">
+      <div className="protocol-center">
+        M
+      </div>
+
+      <div className="protocol-orbit orbit-a" />
+      <div className="protocol-orbit orbit-b" />
+      <div className="protocol-orbit orbit-c" />
+
+      <span className="protocol-node node-one" />
+      <span className="protocol-node node-two" />
+      <span className="protocol-node node-three" />
+    </div>
   );
 }
 
@@ -928,24 +1082,31 @@ function MorphoSection() {
 ============================================================ */
 
 function FinalCTA({
-  onConnect,
+  onWallet,
   onAgent,
 }) {
   const ref = useRef(null);
 
   const { scrollYProgress } = useScroll({
     target: ref,
-    offset: ["start end", "center center"],
+    offset: [
+      "start end",
+      "center center",
+    ],
   });
 
   const scale = useTransform(
     scrollYProgress,
     [0, 0.8],
-    [0.92, 1]
+    [0.95, 1]
   );
 
   return (
-    <section className="content-section final-cta" id="connect" ref={ref}>
+    <section
+      className="content-section final-cta"
+      id="connect"
+      ref={ref}
+    >
       <motion.div
         className="final-card"
         style={{ scale }}
@@ -954,7 +1115,9 @@ function FinalCTA({
         <div className="final-light" />
 
         <div className="final-content">
-          <p className="section-kicker">05 / Connect</p>
+          <p className="section-kicker">
+            05 / Connect
+          </p>
 
           <h2>
             Connect your
@@ -968,12 +1131,18 @@ function FinalCTA({
           </p>
 
           <div className="final-actions">
-            <button className="primary-button" onClick={onConnect}>
+            <button
+              className="primary-button"
+              onClick={onWallet}
+            >
               Connect wallet
               <ArrowUpRight size={16} />
             </button>
 
-            <button className="secondary-button" onClick={onAgent}>
+            <button
+              className="secondary-button"
+              onClick={onAgent}
+            >
               Connect agent
             </button>
           </div>
@@ -991,7 +1160,10 @@ function Footer() {
   return (
     <footer className="footer">
       <div className="footer-inner">
-        <a href="#top" className="footer-brand">
+        <a
+          href="#top"
+          className="footer-brand"
+        >
           <span className="wordmark-symbol">
             <span />
             <span />
@@ -1001,10 +1173,21 @@ function Footer() {
         </a>
 
         <div className="footer-links">
-          <a href="#connections">Products</a>
-          <a href="#infrastructure">Infrastructure</a>
-          <a href="#morpho">Developers</a>
-          <a href="#connect">Resources</a>
+          <a href="#connections">
+            Products
+          </a>
+
+          <a href="#infrastructure">
+            Infrastructure
+          </a>
+
+          <a href="#protocols">
+            Developers
+          </a>
+
+          <a href="#connect">
+            Resources
+          </a>
         </div>
 
         <span className="footer-copy">
@@ -1016,7 +1199,7 @@ function Footer() {
 }
 
 /* ============================================================
-   MODALS
+   WALLET MODAL
 ============================================================ */
 
 function WalletModal({
@@ -1025,206 +1208,283 @@ function WalletModal({
   onClose,
   onConnect,
 }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] =
+    useState(false);
 
-  useEffect(() => {
-    if (!copied) return undefined;
+  if (!open) {
+    return null;
+  }
 
-    const timer = window.setTimeout(() => {
-      setCopied(false);
-    }, 1500);
-
-    return () => window.clearTimeout(timer);
-  }, [copied]);
-
-  const copyMorphoApi = async () => {
+  const copyApi = async () => {
     try {
-      await navigator.clipboard.writeText(MORPHO_API);
+      await navigator.clipboard.writeText(
+        MORPHO_API
+      );
+
       setCopied(true);
+
+      window.setTimeout(() => {
+        setCopied(false);
+      }, 1400);
     } catch {
       setCopied(false);
     }
   };
 
   return (
-    <ModalShell open={open} onClose={onClose}>
-      <div className="modal-heading">
-        <div>
-          <span className="panel-overline">Wallet</span>
-          <h3>Connect your wallet.</h3>
-        </div>
-
-        <button
-          className="modal-close"
-          onClick={onClose}
-          aria-label="Close"
-        >
-          <X size={18} />
-        </button>
-      </div>
-
-      <p className="modal-copy">
-        Your wallet stays under your control. MIRORFI only
-        requests the connection needed to provide the interface.
-      </p>
-
-      {wallet ? (
-        <div className="connected-state">
-          <div className="connected-icon">
-            <Shield size={20} />
-          </div>
-
+    <div
+      className="modal-backdrop"
+      onMouseDown={onClose}
+    >
+      <motion.div
+        className="modal-card"
+        initial={{
+          opacity: 0,
+          y: 16,
+          scale: 0.98,
+        }}
+        animate={{
+          opacity: 1,
+          y: 0,
+          scale: 1,
+        }}
+        transition={{
+          duration: 0.25,
+        }}
+        onMouseDown={(event) =>
+          event.stopPropagation()
+        }
+      >
+        <div className="modal-heading">
           <div>
-            <span>Connected</span>
-            <strong>
-              {wallet.slice(0, 8)}…{wallet.slice(-6)}
-            </strong>
-          </div>
-        </div>
-      ) : (
-        <>
-          <button
-            className="modal-action primary-action"
-            onClick={onConnect}
-          >
-            <Wallet size={18} />
-            Connect browser wallet
-            <ArrowUpRight size={15} />
-          </button>
+            <span className="panel-overline">
+              Wallet
+            </span>
 
-          <div className="modal-info">
-            <span>Infrastructure</span>
+            <h3>
+              Connect your wallet.
+            </h3>
+          </div>
+
+          <button
+            className="modal-close"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <p className="modal-copy">
+          Your wallet remains under your
+          control. MIRORFI only requests the
+          connection required for the interface.
+        </p>
+
+        {wallet ? (
+          <div className="connected-state">
+            <div className="connected-icon">
+              <Shield size={20} />
+            </div>
 
             <div>
-              <code>{MORPHO_API}</code>
+              <span>Connected</span>
 
-              <button
-                onClick={copyMorphoApi}
-                aria-label="Copy Morpho API"
-              >
-                {copied ? "Copied" : <Copy size={14} />}
-              </button>
+              <strong>
+                {wallet.slice(0, 8)}
+                …
+                {wallet.slice(-6)}
+              </strong>
             </div>
           </div>
-        </>
-      )}
-    </ModalShell>
+        ) : (
+          <>
+            <button
+              className="modal-action primary-action"
+              onClick={onConnect}
+            >
+              <Wallet size={18} />
+
+              Connect browser wallet
+
+              <ArrowUpRight size={15} />
+            </button>
+
+            <div className="modal-info">
+              <span>
+                Connected infrastructure
+              </span>
+
+              <div>
+                <code>
+                  {MORPHO_API}
+                </code>
+
+                <button
+                  onClick={copyApi}
+                  aria-label="Copy API endpoint"
+                >
+                  {copied ? (
+                    "✓"
+                  ) : (
+                    <Copy size={14} />
+                  )}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </motion.div>
+    </div>
   );
 }
+
+/* ============================================================
+   AGENT MODAL
+============================================================ */
 
 function AgentModal({
   open,
   onClose,
 }) {
-  const [endpoint, setEndpoint] = useState(MORPHO_MCP);
-  const [agentName, setAgentName] = useState("");
-  const [status, setStatus] = useState("ready");
+  const [endpoint, setEndpoint] =
+    useState(MORPHO_MCP);
+
+  const [agentName, setAgentName] =
+    useState("");
+
+  const [status, setStatus] =
+    useState("ready");
+
+  if (!open) {
+    return null;
+  }
 
   const connectAgent = () => {
     setStatus("connecting");
 
     window.setTimeout(() => {
       setStatus("connected");
-    }, 800);
+    }, 700);
   };
 
   return (
-    <ModalShell open={open} onClose={onClose}>
-      <div className="modal-heading">
-        <div>
-          <span className="panel-overline">Agent connection</span>
-          <h3>Bring your own agent.</h3>
-        </div>
-
-        <button
-          className="modal-close"
-          onClick={onClose}
-          aria-label="Close"
-        >
-          <X size={18} />
-        </button>
-      </div>
-
-      <p className="modal-copy">
-        Connect an MCP endpoint used by your own agent.
-        MIRORFI does not host the agent itself.
-      </p>
-
-      <label className="field">
-        <span>Agent name</span>
-        <input
-          value={agentName}
-          onChange={(event) => setAgentName(event.target.value)}
-          placeholder="My DeFi Agent"
-        />
-      </label>
-
-      <label className="field">
-        <span>MCP endpoint</span>
-
-        <input
-          value={endpoint}
-          onChange={(event) => setEndpoint(event.target.value)}
-          spellCheck="false"
-        />
-      </label>
-
-      <button
-        className="modal-action primary-action"
-        onClick={connectAgent}
-        disabled={status === "connecting"}
-      >
-        <Network size={18} />
-
-        {status === "ready" && "Connect MCP"}
-        {status === "connecting" && "Connecting…"}
-        {status === "connected" && "Connected"}
-
-        {status !== "connected" && (
-          <ArrowUpRight size={15} />
-        )}
-
-        {status === "connected" && (
-          <Sparkles size={15} />
-        )}
-      </button>
-
-      <div className="connection-preview">
-        <div>
-          <span>Endpoint</span>
-          <strong>{endpoint}</strong>
-        </div>
-
-        <div>
-          <span>Mode</span>
-          <strong>Agent initiated</strong>
-        </div>
-      </div>
-    </ModalShell>
-  );
-}
-
-function ModalShell({
-  open,
-  onClose,
-  children,
-}) {
-  if (!open) return null;
-
-  return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
+    <div
+      className="modal-backdrop"
+      onMouseDown={onClose}
+    >
       <motion.div
         className="modal-card"
-        initial={{ opacity: 0, y: 18, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 12 }}
+        initial={{
+          opacity: 0,
+          y: 16,
+          scale: 0.98,
+        }}
+        animate={{
+          opacity: 1,
+          y: 0,
+          scale: 1,
+        }}
         transition={{
           duration: 0.25,
-          ease: [0.22, 1, 0.36, 1],
         }}
-        onMouseDown={(event) => event.stopPropagation()}
+        onMouseDown={(event) =>
+          event.stopPropagation()
+        }
       >
-        {children}
+        <div className="modal-heading">
+          <div>
+            <span className="panel-overline">
+              Agent connection
+            </span>
+
+            <h3>
+              Bring your own agent.
+            </h3>
+          </div>
+
+          <button
+            className="modal-close"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <p className="modal-copy">
+          Connect an MCP endpoint used by
+          your own agent.
+        </p>
+
+        <label className="field">
+          <span>Agent name</span>
+
+          <input
+            value={agentName}
+            onChange={(event) =>
+              setAgentName(
+                event.target.value
+              )
+            }
+            placeholder="My DeFi Agent"
+          />
+        </label>
+
+        <label className="field">
+          <span>MCP endpoint</span>
+
+          <input
+            value={endpoint}
+            onChange={(event) =>
+              setEndpoint(
+                event.target.value
+              )
+            }
+            spellCheck="false"
+          />
+        </label>
+
+        <button
+          className="modal-action primary-action"
+          onClick={connectAgent}
+          disabled={
+            status === "connecting"
+          }
+        >
+          <Network size={18} />
+
+          {status === "ready" &&
+            "Connect MCP"}
+
+          {status === "connecting" &&
+            "Connecting…"}
+
+          {status === "connected" &&
+            "Connected"}
+
+          {status !== "connected" && (
+            <ArrowUpRight size={15} />
+          )}
+        </button>
+
+        <div className="connection-preview">
+          <div>
+            <span>Endpoint</span>
+
+            <strong>
+              {endpoint}
+            </strong>
+          </div>
+
+          <div>
+            <span>Mode</span>
+
+            <strong>
+              Agent initiated
+            </strong>
+          </div>
+        </div>
       </motion.div>
     </div>
   );
@@ -1239,18 +1499,24 @@ function MobileMenu({
   onClose,
   onConnect,
 }) {
-  if (!open) return null;
+  if (!open) {
+    return null;
+  }
 
   return (
     <div className="mobile-menu">
       <div className="mobile-menu-top">
-        <a href="#top" className="wordmark" onClick={onClose}>
+        <a
+          href="#top"
+          className="wordmark"
+          onClick={onClose}
+        >
           <span className="wordmark-symbol">
             <span />
             <span />
           </span>
 
-          <span>MIRORFI</span>
+          MIRORFI
         </a>
 
         <button
@@ -1263,23 +1529,38 @@ function MobileMenu({
       </div>
 
       <nav>
-        <a href="#connections" onClick={onClose}>
+        <a
+          href="#connections"
+          onClick={onClose}
+        >
           Products
         </a>
 
-        <a href="#infrastructure" onClick={onClose}>
+        <a
+          href="#infrastructure"
+          onClick={onClose}
+        >
           Infrastructure
         </a>
 
-        <a href="#morpho" onClick={onClose}>
+        <a
+          href="#protocols"
+          onClick={onClose}
+        >
           Developers
         </a>
 
-        <a href="#connect" onClick={onClose}>
+        <a
+          href="#connect"
+          onClick={onClose}
+        >
           Resources
         </a>
 
-        <a href="#connect" onClick={onClose}>
+        <a
+          href="#connect"
+          onClick={onClose}
+        >
           About
         </a>
       </nav>
@@ -1299,7 +1580,7 @@ function MobileMenu({
    REVEAL
 ============================================================ */
 
-function RevealBlock({
+function Reveal({
   children,
   delay = 0,
   className = "",
@@ -1309,7 +1590,7 @@ function RevealBlock({
       className={className}
       initial={{
         opacity: 0,
-        y: 42,
+        y: 38,
       }}
       whileInView={{
         opacity: 1,
@@ -1317,12 +1598,17 @@ function RevealBlock({
       }}
       viewport={{
         once: true,
-        amount: 0.2,
+        amount: 0.18,
       }}
       transition={{
-        duration: 0.82,
+        duration: 0.8,
         delay,
-        ease: [0.22, 1, 0.36, 1],
+        ease: [
+          0.22,
+          1,
+          0.36,
+          1,
+        ],
       }}
     >
       {children}
@@ -1331,53 +1617,365 @@ function RevealBlock({
 }
 
 /* ============================================================
-   HELPERS
+   DATA
 ============================================================ */
 
-function formatPercent(value) {
-  if (value === null || value === undefined) {
-    return "—";
-  }
+async function loadMorphoMarkets() {
+  try {
+    const response = await fetch(
+      `${MORPHO_API}/graphql`,
+      {
+        method: "POST",
 
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+
+        body: JSON.stringify({
+          query: `
+            query {
+              markets(first: 6) {
+                items {
+                  uniqueKey
+                  loanAsset {
+                    symbol
+                  }
+                  state {
+                    supplyApy
+                    borrowApy
+                    liquidityAssets
+                  }
+                }
+              }
+            }
+          `,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      return;
+    }
+
+    const json =
+      await response.json();
+
+    const items =
+      json?.data?.markets?.items;
+
+    if (
+      !Array.isArray(items) ||
+      items.length === 0
+    ) {
+      return;
+    }
+
+    const parsed =
+      items
+        .filter(
+          (item) =>
+            item?.loanAsset?.symbol
+        )
+        .slice(0, 6)
+        .map((item) => ({
+          asset:
+            item.loanAsset.symbol,
+
+          network:
+            "Morpho",
+
+          supply:
+            formatPercent(
+              item?.state?.supplyApy
+            ),
+
+          borrow:
+            formatPercent(
+              item?.state?.borrowApy
+            ),
+
+          liquidity:
+            formatUsd(
+              item?.state
+                ?.liquidityAssets
+            ),
+        }));
+
+    if (parsed.length) {
+      window.dispatchEvent(
+        new CustomEvent(
+          "mirorfi:markets",
+          {
+            detail: parsed,
+          }
+        )
+      );
+    }
+  } catch {
+    // Fallback data remains active.
+  }
+}
+
+function formatPercent(value) {
   const number = Number(value);
 
   if (!Number.isFinite(number)) {
     return "—";
   }
 
-  const percent = number > 1 ? number : number * 100;
-
-  return `${percent.toFixed(2)}%`;
+  return `${(
+    (number > 1
+      ? number
+      : number * 100)
+  ).toFixed(2)}%`;
 }
 
 function formatUsd(value) {
-  if (value === null || value === undefined) {
-    return "—";
-  }
-
   const number = Number(value);
 
   if (!Number.isFinite(number)) {
     return "—";
   }
 
-  if (number >= 1_000_000_000) {
-    return `$${(number / 1_000_000_000).toFixed(1)}B`;
+  if (number >= 1e9) {
+    return `$${(
+      number / 1e9
+    ).toFixed(1)}B`;
   }
 
-  if (number >= 1_000_000) {
-    return `$${(number / 1_000_000).toFixed(1)}M`;
+  if (number >= 1e6) {
+    return `$${(
+      number / 1e6
+    ).toFixed(1)}M`;
   }
 
-  if (number >= 1_000) {
-    return `$${(number / 1_000).toFixed(1)}K`;
+  if (number >= 1e3) {
+    return `$${(
+      number / 1e3
+    ).toFixed(1)}K`;
   }
 
   return `$${number.toFixed(0)}`;
 }
 
-createRoot(document.getElementById("root")).render(
+function MirorfiMarketSync() {
+  return null;
+}
+
+function mountMarketListener(setMarkets, setLive) {
+  return () => {
+    const handler = (event) => {
+      if (
+        Array.isArray(
+          event.detail
+        ) &&
+        event.detail.length
+      ) {
+        setMarkets(
+          event.detail
+        );
+        setLive(true);
+      }
+    };
+
+    window.addEventListener(
+      "mirorfi:markets",
+      handler
+    );
+
+    return () => {
+      window.removeEventListener(
+        "mirorfi:markets",
+        handler
+      );
+    };
+  };
+}
+
+/* ============================================================
+   PATCH MARKET LISTENER INTO APP
+============================================================ */
+
+const OriginalApp = App;
+
+function RootApp() {
+  const [markets, setMarkets] =
+    useState(fallbackMarkets);
+
+  const [live, setLive] =
+    useState(false);
+
+  useEffect(
+    mountMarketListener(
+      setMarkets,
+      setLive
+    ),
+    []
+  );
+
+  useEffect(() => {
+    loadMorphoMarkets();
+  }, []);
+
+  return (
+    <AppWithMarkets
+      markets={markets}
+      live={live}
+    />
+  );
+}
+
+function AppWithMarkets({
+  markets,
+  live,
+}) {
+  const [wallet, setWallet] = useState("");
+  const [walletOpen, setWalletOpen] =
+    useState(false);
+  const [agentOpen, setAgentOpen] =
+    useState(false);
+  const [mobileOpen, setMobileOpen] =
+    useState(false);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      setWalletOpen(false);
+      setAgentOpen(false);
+      setMobileOpen(false);
+    };
+
+    window.addEventListener(
+      "keydown",
+      onKeyDown
+    );
+
+    return () => {
+      window.removeEventListener(
+        "keydown",
+        onKeyDown
+      );
+    };
+  }, []);
+
+  const connectWallet =
+    async () => {
+      if (!window.ethereum) {
+        setWalletOpen(true);
+        return;
+      }
+
+      try {
+        const accounts =
+          await window.ethereum.request({
+            method:
+              "eth_requestAccounts",
+          });
+
+        if (accounts?.[0]) {
+          setWallet(accounts[0]);
+          setWalletOpen(false);
+        }
+      } catch {
+        // User cancelled.
+      }
+    };
+
+  const shortenedWallet =
+    wallet
+      ? `${wallet.slice(
+          0,
+          6
+        )}…${wallet.slice(-4)}`
+      : "";
+
+  return (
+    <>
+      <Navbar
+        wallet={wallet}
+        shortenedWallet={shortenedWallet}
+        onConnect={() =>
+          setWalletOpen(true)
+        }
+        onMenu={() =>
+          setMobileOpen(true)
+        }
+      />
+
+      <MobileMenu
+        open={mobileOpen}
+        onClose={() =>
+          setMobileOpen(false)
+        }
+        onConnect={() => {
+          setMobileOpen(false);
+          setWalletOpen(true);
+        }}
+      />
+
+      <main>
+        <Hero
+          onConnect={
+            connectWallet
+          }
+        />
+
+        <ConnectionSection
+          onMcp={() =>
+            setAgentOpen(true)
+          }
+        />
+
+        <InfrastructureSection
+          markets={markets}
+          live={live}
+        />
+
+        <OwnershipSection />
+
+        <ProtocolSection />
+
+        <FinalCTA
+          onWallet={
+            connectWallet
+          }
+          onAgent={() =>
+            setAgentOpen(true)
+          }
+        />
+      </main>
+
+      <Footer />
+
+      <WalletModal
+        open={walletOpen}
+        wallet={wallet}
+        onClose={() =>
+          setWalletOpen(false)
+        }
+        onConnect={
+          connectWallet
+        }
+      />
+
+      <AgentModal
+        open={agentOpen}
+        onClose={() =>
+          setAgentOpen(false)
+        }
+      />
+    </>
+  );
+}
+
+createRoot(
+  document.getElementById("root")
+).render(
   <React.StrictMode>
-    <App />
+    <RootApp />
   </React.StrictMode>
 );
